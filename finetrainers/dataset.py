@@ -246,7 +246,7 @@ class ImageOrVideoDataset(Dataset):
         video_reader = decord.VideoReader(uri=path.as_posix())
         video_num_frames = len(video_reader)
 
-        indices = list(range(0, video_num_frames))
+        indices = list(range(0, video_num_frames, video_num_frames // self.max_num_frames))
         frames = video_reader.get_batch(indices)
         frames = frames[: self.max_num_frames].float()
         frames = frames.permute(0, 3, 1, 2).contiguous()
