@@ -143,8 +143,11 @@ class SFTTrainer:
 
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
-        if self.args.training_type == TrainingType.LORA and not parallel_backend.data_sharding_enabled:
-            cast_training_params([self.transformer], dtype=torch.float32)
+        if parallel_backend.data_sharding_enabled:
+            self.transformer.to(dtype=self.args.transformer_dtype)
+        else:
+            if self.args.training_type == TrainingType.LORA:
+                cast_training_params([self.transformer], dtype=torch.float32)
 
     def _prepare_for_training(self) -> None:
         # 1. Apply parallelism
@@ -907,15 +910,17 @@ class SFTTrainer:
         else:
             logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
 
-            parallel_backend = self.state.parallel_backend
-            train_state = self.state.train_state
-            self.checkpointer.save(
-                train_state.step,
-                force=True,
-                _device=parallel_backend.device,
-                _is_main_process=parallel_backend.is_main_process,
-            )
-            self._delete_components(component_names=["transformer", "unet"])
+            # TODO(aryan): This needs to be revisited. For some reason, the tests did not detect that self.transformer
+            # had become None after this but should have been loaded back from the checkpoint.
+            # parallel_backend = self.state.parallel_backend
+            # train_state = self.state.train_state
+            # self.checkpointer.save(
+            #     train_state.step,
+            #     force=True,
+            #     _device=parallel_backend.device,
+            #     _is_main_process=parallel_backend.is_main_process,
+            # )
+            # self._delete_components(component_names=["transformer", "unet"])
 
             if self.args.precomputation_once:
                 consume_fn = preprocessor.consume_once
@@ -956,7 +961,8 @@ class SFTTrainer:
             self._delete_components(component_names)
             del latent_components, component_names, component_modules
 
-            self.checkpointer.load()
+            # self.checkpointer.load()
+            # self.transformer = self.checkpointer.states["model"].model[0]
 
         return condition_iterator, latent_iterator
 
