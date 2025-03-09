@@ -287,3 +287,48 @@ class ModelSpecification:
                 self.pretrained_model_name_or_path, subfolder="vae", revision=self.revision, cache_dir=self.cache_dir
             )
         self.vae_config = FrozenDict(**self.vae_config)
+
+
+class ControlModelSpecification(ModelSpecification):
+    def _save_lora_weights(
+        self,
+        directory: str,
+        transformer: torch.nn.Module,
+        transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        norm_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        scheduler: Optional[SchedulerType] = None,
+    ) -> None:
+        r"""
+        Save the lora state dicts of the model to the given directory.
+
+        This API is not backwards compatible and will be changed in near future.
+        """
+        raise NotImplementedError(
+            f"ModelSpecification::save_lora_weights is not implemented for {self.__class__.__name__}"
+        )
+
+    def _save_model(
+        self,
+        directory: str,
+        transformer: torch.nn.Module,
+        transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        scheduler: Optional[SchedulerType] = None,
+    ) -> None:
+        r"""
+        Save the state dicts to the given directory.
+
+        This API is not backwards compatible and will be changed in near future.
+        """
+        raise NotImplementedError(f"ModelSpecification::save_model is not implemented for {self.__class__.__name__}")
+
+    @property
+    def _control_layer_pattern(self):
+        raise NotImplementedError(
+            f"ControlModelSpecification::_control_layer_pattern is not implemented for {self.__class__.__name__}"
+        )
+
+    @property
+    def _qk_norm_identifiers(self):
+        raise NotImplementedError(
+            f"ControlModelSpecification::_qk_norm_identifiers is not implemented for {self.__class__.__name__}"
+        )

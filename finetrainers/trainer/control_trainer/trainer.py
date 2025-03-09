@@ -2,6 +2,7 @@ import functools
 import json
 import math
 import os
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
 logger = logging.get_logger()
 
 
-class SFTTrainer:
+class ControlTrainer:
     # fmt: off
     _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
     _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
@@ -112,7 +113,7 @@ class SFTTrainer:
 
         parallel_backend = self.state.parallel_backend
 
-        if self.args.training_type == TrainingType.FULL_FINETUNE:
+        if self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
             logger.info("Finetuning transformer with no additional parameters")
             utils.set_requires_grad([self.transformer], True)
         else:
@@ -122,7 +123,10 @@ class SFTTrainer:
         # Layerwise upcasting must be applied before adding the LoRA adapter.
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
         # CPU for now, before support is added in Diffusers for loading and enabling layerwise upcasting directly.
-        if self.args.training_type == TrainingType.LORA and "transformer" in self.args.layerwise_upcasting_modules:
+        if (
+            self.args.training_type == TrainingType.CONTROL_LORA
+            and "transformer" in self.args.layerwise_upcasting_modules
+        ):
             apply_layerwise_casting(
                 self.transformer,
                 storage_dtype=self.args.layerwise_upcasting_storage_dtype,
@@ -132,18 +136,35 @@ class SFTTrainer:
             )
 
         transformer_lora_config = None
-        if self.args.training_type == TrainingType.LORA:
+        if self.args.training_type == TrainingType.CONTROL_LORA:
+            target_modules = []
+            target_modules.extend(self.args.target_modules)
+            target_modules.extend(self.model_specification._control_layer_pattern)
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
                 lora_alpha=self.args.lora_alpha,
                 init_lora_weights=True,
-                target_modules=self.args.target_modules,
+                target_modules=target_modules,
             )
             self.transformer.add_adapter(transformer_lora_config)
 
+        if self.args.train_qk_norm:
+            qk_norm_identifiers = self.model_specification._qk_norm_identifiers
+            qk_norm_module_names, qk_norm_modules = [], []
+
+            for name, module in self.transformer.named_modules():
+                regex_match = any(re.search(identifier, name) is not None for identifier in qk_norm_identifiers)
+                is_parameteric = len(list(module.parameters())) > 0
+                if regex_match and is_parameteric:
+                    qk_norm_module_names.append(name)
+                    qk_norm_modules.append(module)
+
+            logger.info(f"Training QK norms for modules: {qk_norm_module_names}")
+            utils.set_requires_grad(qk_norm_modules, True)
+
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
-        if self.args.training_type == TrainingType.LORA and not parallel_backend.data_sharding_enabled:
+        if self.args.training_type == TrainingType.CONTROL_LORA and not parallel_backend.data_sharding_enabled:
             cast_training_params([self.transformer], dtype=torch.float32)
 
     def _prepare_for_training(self) -> None:
@@ -292,10 +313,22 @@ class SFTTrainer:
 
         def save_model_hook(state_dict: Dict[str, Any]) -> None:
             if parallel_backend.is_main_process:
-                if self.args.training_type == TrainingType.LORA:
+                if self.args.training_type == TrainingType.CONTROL_LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
-                    self.model_specification._save_lora_weights(self.args.output_dir, state_dict, self.scheduler)
-                elif self.args.training_type == TrainingType.FULL_FINETUNE:
+                    qk_norm_state_dict = None
+                    if self.args.train_qk_norm:
+                        qk_norm_state_dict = {
+                            name: module.state_dict()
+                            for name, module in self.transformer.named_modules()
+                            if any(
+                                re.search(identifier, name) is not None
+                                for identifier in self.model_specification._qk_norm_identifiers
+                            )
+                        }
+                    self.model_specification._save_lora_weights(
+                        self.args.output_dir, state_dict, qk_norm_state_dict, self.scheduler
+                    )
+                elif self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
                     self.model_specification._save_model(
                         self.args.output_dir, self.transformer, state_dict, self.scheduler
                     )
