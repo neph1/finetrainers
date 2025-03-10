@@ -8,10 +8,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
 
 import datasets.distributed
-import diffusers
+import safetensors.torch
 import torch
 import torch.backends
-import transformers
 import wandb
 from diffusers import DiffusionPipeline
 from diffusers.hooks import apply_layerwise_casting
@@ -788,29 +787,8 @@ class ControlTrainer:
             utils.enable_determinism(self.args.seed, world_mesh)
 
     def _init_logging(self) -> None:
-        transformers_log_level = transformers.utils.logging.set_verbosity_error
-        diffusers_log_level = diffusers.utils.logging.set_verbosity_error
-
-        if self.args.verbose == 0:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_warning
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_warning
-        elif self.args.verbose == 1:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_info
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_info
-        elif self.args.verbose == 2:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_debug
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
-        else:
-            transformers_log_level = transformers.utils.logging.set_verbosity_debug
-            diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
-
-        transformers_log_level()
-        diffusers_log_level()
-
         logging._set_parallel_backend(self.state.parallel_backend)
+        logging.set_dependency_log_level(self.args.verbose, self.state.parallel_backend.is_local_main_process)
         logger.info("Initialized FineTrainers")
 
     def _init_trackers(self) -> None:
@@ -889,11 +867,12 @@ class ControlTrainer:
 
             # Load the transformer weights from the final checkpoint if performing full-finetune
             transformer = None
-            if self.args.training_type == TrainingType.FULL_FINETUNE:
+            if self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
                 # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
                 new_in_features = self.model_specification._original_in_features * 2
                 transformer = self.model_specification.load_diffusion_models(new_in_features)["transformer"]
 
+            self.transformer = transformer
             pipeline = self.model_specification.load_pipeline(
                 transformer=transformer,
                 enable_slicing=self.args.enable_slicing,
@@ -904,8 +883,12 @@ class ControlTrainer:
             )
 
             # Load the LoRA weights if performing LoRA finetuning
-            if self.args.training_type == TrainingType.LORA:
+            if self.args.training_type == TrainingType.CONTROL_LORA:
                 pipeline.load_lora_weights(self.args.output_dir)
+                norm_state_dict_path = Path(self.args.output_dir) / "norm_state_dict.safetensors"
+                if self.args.train_qk_norm and norm_state_dict_path.exists():
+                    norm_state_dict = safetensors.torch.load_file(norm_state_dict_path, parallel_backend.device)
+                    self.transformer.load_state_dict(norm_state_dict)
 
         components = {module_name: getattr(pipeline, module_name, None) for module_name in module_names}
         self._set_components(components)

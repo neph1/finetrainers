@@ -7,10 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
 
 import datasets.distributed
-import diffusers
 import torch
 import torch.backends
-import transformers
 import wandb
 from diffusers import DiffusionPipeline
 from diffusers.hooks import apply_layerwise_casting
@@ -748,29 +746,8 @@ class SFTTrainer:
             utils.enable_determinism(self.args.seed, world_mesh)
 
     def _init_logging(self) -> None:
-        transformers_log_level = transformers.utils.logging.set_verbosity_error
-        diffusers_log_level = diffusers.utils.logging.set_verbosity_error
-
-        if self.args.verbose == 0:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_warning
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_warning
-        elif self.args.verbose == 1:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_info
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_info
-        elif self.args.verbose == 2:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_debug
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
-        else:
-            transformers_log_level = transformers.utils.logging.set_verbosity_debug
-            diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
-
-        transformers_log_level()
-        diffusers_log_level()
-
         logging._set_parallel_backend(self.state.parallel_backend)
+        logging.set_dependency_log_level(self.args.verbose, self.state.parallel_backend.is_local_main_process)
         logger.info("Initialized FineTrainers")
 
     def _init_trackers(self) -> None:
