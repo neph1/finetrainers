@@ -62,9 +62,10 @@ class DiagonalGaussianDistribution(object):
         return self.mean
 
 
+@torch.no_grad()
 def _expand_linear_with_zeroed_weights(
     module: torch.nn.Linear, new_in_features: Optional[int] = None, new_out_features: Optional[int] = None
-):
+) -> torch.nn.Linear:
     if new_in_features is None:
         new_in_features = module.in_features
     if new_out_features is None:
@@ -76,3 +77,4 @@ def _expand_linear_with_zeroed_weights(
     if bias is not None:
         new_module.bias.zero_()
         new_module.bias.data[: bias.data.shape[0]].copy_(bias.data)
+    return new_module

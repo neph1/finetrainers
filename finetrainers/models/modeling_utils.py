@@ -115,8 +115,10 @@ class ModelSpecification:
             f"ModelSpecification::load_pipeline is not implemented for {self.__class__.__name__}"
         )
 
-    def prepare_conditions(self, **kwargs) -> Dict[str, Any]:
-        for processor in self.condition_model_processors:
+    def prepare_conditions(self, processors: Optional[ProcessorMixin] = None, **kwargs) -> Dict[str, Any]:
+        if processors is None:
+            processors = self.condition_model_processors
+        for processor in processors:
             result = processor(**kwargs)
             result_keys = set(result.keys())
             repeat_keys = result_keys.intersection(kwargs.keys())
@@ -129,8 +131,10 @@ class ModelSpecification:
             kwargs.update(result)
         return kwargs
 
-    def prepare_latents(self, **kwargs) -> Dict[str, Any]:
-        for processor in self.latent_model_processors:
+    def prepare_latents(self, processors: Optional[ProcessorMixin] = None, **kwargs) -> Dict[str, Any]:
+        if processors is None:
+            processors = self.latent_model_processors
+        for processor in processors:
             result = processor(**kwargs)
             result_keys = set(result.keys())
             repeat_keys = result_keys.intersection(kwargs.keys())
@@ -290,6 +294,11 @@ class ModelSpecification:
 
 
 class ControlModelSpecification(ModelSpecification):
+    def load_diffusion_models(self, new_in_features: int) -> Dict[str, Union[torch.nn.Module]]:
+        raise NotImplementedError(
+            f"ControlModelSpecification::load_diffusion_models is not implemented for {self.__class__.__name__}"
+        )
+
     def _save_lora_weights(
         self,
         directory: str,
@@ -304,7 +313,7 @@ class ControlModelSpecification(ModelSpecification):
         This API is not backwards compatible and will be changed in near future.
         """
         raise NotImplementedError(
-            f"ModelSpecification::save_lora_weights is not implemented for {self.__class__.__name__}"
+            f"ControlModelSpecification::save_lora_weights is not implemented for {self.__class__.__name__}"
         )
 
     def _save_model(
@@ -319,7 +328,15 @@ class ControlModelSpecification(ModelSpecification):
 
         This API is not backwards compatible and will be changed in near future.
         """
-        raise NotImplementedError(f"ModelSpecification::save_model is not implemented for {self.__class__.__name__}")
+        raise NotImplementedError(
+            f"ControlModelSpecification::save_model is not implemented for {self.__class__.__name__}"
+        )
+
+    @property
+    def _original_in_features(self):
+        raise NotImplementedError(
+            f"ControlModelSpecification::_original_in_features is not implemented for {self.__class__.__name__}"
+        )
 
     @property
     def _control_layer_pattern(self):

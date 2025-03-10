@@ -1,18 +1,65 @@
 import os
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import safetensors.torch
 import torch
+from accelerate import init_empty_weights
 from diffusers import AutoencoderKL, CogView4Pipeline, CogView4Transformer2DModel, FlowMatchEulerDiscreteScheduler
 
 from ... import functional as FF
+from ...processors import CogView4GLMProcessor, ProcessorMixin
 from ...typing import SchedulerType
 from ..modeling_utils import ControlModelSpecification
 from ..utils import DiagonalGaussianDistribution, _expand_linear_with_zeroed_weights
-from .base_specification import CogView4ModelSpecification
+from .base_specification import CogView4LatentEncodeProcessor, CogView4ModelSpecification
 
 
-class CogView4ControlModelSpecification(ControlModelSpecification, CogView4ModelSpecification):
+class CogView4ControlModelSpecification(CogView4ModelSpecification, ControlModelSpecification):
+    def __init__(
+        self,
+        pretrained_model_name_or_path: str = "THUDM/CogView4-6B",
+        tokenizer_id: Optional[str] = None,
+        text_encoder_id: Optional[str] = None,
+        transformer_id: Optional[str] = None,
+        vae_id: Optional[str] = None,
+        text_encoder_dtype: torch.dtype = torch.bfloat16,
+        transformer_dtype: torch.dtype = torch.bfloat16,
+        vae_dtype: torch.dtype = torch.bfloat16,
+        revision: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        condition_model_processors: List[ProcessorMixin] = None,
+        latent_model_processors: List[ProcessorMixin] = None,
+        control_model_processors: List[ProcessorMixin] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            pretrained_model_name_or_path=pretrained_model_name_or_path,
+            tokenizer_id=tokenizer_id,
+            text_encoder_id=text_encoder_id,
+            transformer_id=transformer_id,
+            vae_id=vae_id,
+            text_encoder_dtype=text_encoder_dtype,
+            transformer_dtype=transformer_dtype,
+            vae_dtype=vae_dtype,
+            revision=revision,
+            cache_dir=cache_dir,
+        )
+
+        if condition_model_processors is None:
+            condition_model_processors = [CogView4GLMProcessor(["encoder_hidden_states"])]
+        if latent_model_processors is None:
+            latent_model_processors = [
+                CogView4LatentEncodeProcessor(["latents", "original_size", "target_size", "crop_coords"])
+            ]
+        if control_model_processors is None:
+            control_model_processors = [
+                CogView4LatentEncodeProcessor(["control_latents", "original_size", "target_size", "crop_coords"])
+            ]
+
+        self.condition_model_processors = condition_model_processors
+        self.latent_model_processors = latent_model_processors
+        self.control_model_processors = control_model_processors
+
     def load_diffusion_models(self, new_in_features: int) -> Dict[str, torch.nn.Module]:
         if self.transformer_id is not None:
             transformer = CogView4Transformer2DModel.from_pretrained(
@@ -30,7 +77,10 @@ class CogView4ControlModelSpecification(ControlModelSpecification, CogView4Model
                 cache_dir=self.cache_dir,
             )
 
-        _expand_linear_with_zeroed_weights(transformer.patch_embed.proj, new_in_features=new_in_features)
+        actual_new_in_features = new_in_features * transformer.config.patch_size**2
+        transformer.patch_embed.proj = _expand_linear_with_zeroed_weights(
+            transformer.patch_embed.proj, new_in_features=actual_new_in_features
+        )
         transformer.register_to_config(in_channels=new_in_features)
 
         scheduler = FlowMatchEulerDiscreteScheduler()
@@ -61,22 +111,23 @@ class CogView4ControlModelSpecification(ControlModelSpecification, CogView4Model
         }
         conditions = {"image": image, "video": video, **common_kwargs, **kwargs}
         input_keys = set(conditions.keys())
-        conditions = super().prepare_latents(**conditions)
+        conditions = ControlModelSpecification.prepare_latents(self, self.latent_model_processors, **conditions)
         conditions = {k: v for k, v in conditions.items() if k not in input_keys}
 
         control_conditions = {"image": control_image, "video": control_video, **common_kwargs, **kwargs}
         input_keys = set(control_conditions.keys())
-        control_conditions = super().prepare_latents(**control_conditions)
+        control_conditions = ControlModelSpecification.prepare_latents(
+            self, self.control_model_processors, **control_conditions
+        )
         control_conditions = {k: v for k, v in control_conditions.items() if k not in input_keys}
 
-        return conditions, control_conditions
+        return {**control_conditions, **conditions}
 
     def forward(
         self,
         transformer: CogView4Transformer2DModel,
         condition_model_conditions: Dict[str, torch.Tensor],
         latent_model_conditions: Dict[str, torch.Tensor],
-        control_model_conditions: Dict[str, torch.Tensor],
         sigmas: torch.Tensor,
         generator: Optional[torch.Generator] = None,
         compute_posterior: bool = True,
@@ -88,13 +139,13 @@ class CogView4ControlModelSpecification(ControlModelSpecification, CogView4Model
 
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
-            control_latents = control_model_conditions.pop("latents")
+            control_latents = latent_model_conditions.pop("control_latents")
         else:
             posterior = DiagonalGaussianDistribution(latent_model_conditions.pop("latents"))
             latents = posterior.sample(generator=generator)
             del posterior
 
-            control_posterior = DiagonalGaussianDistribution(control_model_conditions.pop("latents"))
+            control_posterior = DiagonalGaussianDistribution(latent_model_conditions.pop("control_latents"))
             control_latents = control_posterior.sample(generator=generator)
             del control_posterior
 
@@ -139,6 +190,22 @@ class CogView4ControlModelSpecification(ControlModelSpecification, CogView4Model
             CogView4Pipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
         if norm_state_dict is not None:
             safetensors.torch.save_file(norm_state_dict, os.path.join(directory, "norm_state_dict.safetensors"))
+        if scheduler is not None:
+            scheduler.save_pretrained(os.path.join(directory, "scheduler"))
+
+    def _save_model(
+        self,
+        directory: str,
+        transformer: CogView4Transformer2DModel,
+        transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        scheduler: Optional[SchedulerType] = None,
+    ) -> None:
+        # TODO(aryan): this needs refactoring
+        if transformer_state_dict is not None:
+            with init_empty_weights():
+                transformer_copy = CogView4Transformer2DModel.from_config(transformer.config)
+            transformer_copy.load_state_dict(transformer_state_dict, strict=True, assign=True)
+            transformer_copy.save_pretrained(os.path.join(directory, "transformer"))
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
 

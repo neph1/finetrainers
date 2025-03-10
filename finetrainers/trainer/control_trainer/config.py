@@ -15,6 +15,7 @@ class ControlType(str, Enum):
     """
 
     CANNY = "canny"
+    CUSTOM = "custom"
 
 
 class ControlLowRankConfig(ConfigMixin):

@@ -24,11 +24,12 @@ from tqdm import tqdm
 from ... import data, logging, optimizer, parallel, patches, utils
 from ...config import TrainingType
 from ...state import State, TrainState
+from .data import IterableControlDataset
 
 
 if TYPE_CHECKING:
     from ...args import BaseArgs
-    from ...models import ModelSpecification
+    from ...models import ControlModelSpecification
 
 
 logger = logging.get_logger()
@@ -42,7 +43,7 @@ class ControlTrainer:
     _diffusion_component_names = ["transformer", "unet", "scheduler"]
     # fmt: on
 
-    def __init__(self, args: "BaseArgs", model_specification: "ModelSpecification") -> None:
+    def __init__(self, args: "BaseArgs", model_specification: "ControlModelSpecification") -> None:
         self.args = args
         self.state = State()
         self.state.train_state = TrainState()
@@ -100,7 +101,9 @@ class ControlTrainer:
     def _prepare_models(self) -> None:
         logger.info("Initializing models")
 
-        diffusion_components = self.model_specification.load_diffusion_models()
+        # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
+        new_in_features = self.model_specification._original_in_features * 2
+        diffusion_components = self.model_specification.load_diffusion_models(new_in_features)
         self._set_components(diffusion_components)
 
         if self.state.parallel_backend.pipeline_parallel_enabled:
@@ -164,8 +167,11 @@ class ControlTrainer:
 
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
-        if self.args.training_type == TrainingType.CONTROL_LORA and not parallel_backend.data_sharding_enabled:
-            cast_training_params([self.transformer], dtype=torch.float32)
+        if parallel_backend.data_sharding_enabled:
+            self.transformer.to(dtype=self.args.transformer_dtype)
+        else:
+            if self.args.training_type == TrainingType.CONTROL_LORA:
+                cast_training_params([self.transformer], dtype=torch.float32)
 
     def _prepare_for_training(self) -> None:
         # 1. Apply parallelism
@@ -301,6 +307,7 @@ class ControlTrainer:
             datasets.append(dataset)
 
         dataset = data.combine_datasets(datasets, buffer_size=self.args.dataset_shuffle_buffer_size, shuffle=True)
+        dataset = IterableControlDataset(dataset, self.args.control_type)
         dataloader = self.state.parallel_backend.prepare_dataloader(
             dataset, batch_size=1, num_workers=self.args.dataloader_num_workers, pin_memory=self.args.pin_memory
         )
@@ -311,20 +318,23 @@ class ControlTrainer:
     def _prepare_checkpointing(self) -> None:
         parallel_backend = self.state.parallel_backend
 
-        def save_model_hook(state_dict: Dict[str, Any]) -> None:
+        def save_model_hook(state_dict: Dict[str, torch.Tensor]) -> None:
             if parallel_backend.is_main_process:
                 if self.args.training_type == TrainingType.CONTROL_LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
                     qk_norm_state_dict = None
                     if self.args.train_qk_norm:
                         qk_norm_state_dict = {
-                            name: module.state_dict()
-                            for name, module in self.transformer.named_modules()
+                            name: parameter
+                            for name, parameter in state_dict.items()
                             if any(
                                 re.search(identifier, name) is not None
                                 for identifier in self.model_specification._qk_norm_identifiers
                             )
+                            and parameter.numel() > 0
                         }
+                        if len(qk_norm_state_dict) == 0:
+                            qk_norm_state_dict = None
                     self.model_specification._save_lora_weights(
                         self.args.output_dir, state_dict, qk_norm_state_dict, self.scheduler
                     )
@@ -880,7 +890,9 @@ class ControlTrainer:
             # Load the transformer weights from the final checkpoint if performing full-finetune
             transformer = None
             if self.args.training_type == TrainingType.FULL_FINETUNE:
-                transformer = self.model_specification.load_diffusion_models()["transformer"]
+                # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
+                new_in_features = self.model_specification._original_in_features * 2
+                transformer = self.model_specification.load_diffusion_models(new_in_features)["transformer"]
 
             pipeline = self.model_specification.load_pipeline(
                 transformer=transformer,
@@ -940,15 +952,17 @@ class ControlTrainer:
         else:
             logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
 
-            parallel_backend = self.state.parallel_backend
-            train_state = self.state.train_state
-            self.checkpointer.save(
-                train_state.step,
-                force=True,
-                _device=parallel_backend.device,
-                _is_main_process=parallel_backend.is_main_process,
-            )
-            self._delete_components(component_names=["transformer", "unet"])
+            # TODO(aryan): This needs to be revisited. For some reason, the tests did not detect that self.transformer
+            # had become None after this but should have been loaded back from the checkpoint.
+            # parallel_backend = self.state.parallel_backend
+            # train_state = self.state.train_state
+            # self.checkpointer.save(
+            #     train_state.step,
+            #     force=True,
+            #     _device=parallel_backend.device,
+            #     _is_main_process=parallel_backend.is_main_process,
+            # )
+            # self._delete_components(component_names=["transformer", "unet"])
 
             if self.args.precomputation_once:
                 consume_fn = preprocessor.consume_once
@@ -989,7 +1003,8 @@ class ControlTrainer:
             self._delete_components(component_names)
             del latent_components, component_names, component_modules
 
-            self.checkpointer.load()
+            # self.checkpointer.load()
+            # self.transformer = self.checkpointer.states["model"].model[0]
 
         return condition_iterator, latent_iterator
 
