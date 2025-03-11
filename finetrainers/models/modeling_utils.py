@@ -339,12 +339,6 @@ class ControlModelSpecification(ModelSpecification):
         )
 
     @property
-    def _control_layer_pattern(self):
-        raise NotImplementedError(
-            f"ControlModelSpecification::_control_layer_pattern is not implemented for {self.__class__.__name__}"
-        )
-
-    @property
     def _qk_norm_identifiers(self):
         raise NotImplementedError(
             f"ControlModelSpecification::_qk_norm_identifiers is not implemented for {self.__class__.__name__}"

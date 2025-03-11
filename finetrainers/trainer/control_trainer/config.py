@@ -1,6 +1,6 @@
 import argparse
 from enum import Enum
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 from ..config_utils import ConfigMixin
 
@@ -45,7 +45,10 @@ class ControlLowRankConfig(ConfigMixin):
 
     def add_args(self, parser: argparse.ArgumentParser):
         parser.add_argument(
-            "--control_type", type=str, default=ControlType.CANNY, choices=list(ControlType.__members__.keys())
+            "--control_type",
+            type=str,
+            default=ControlType.CANNY.value,
+            choices=[x.value for x in ControlType.__members__.values()],
         )
         parser.add_argument("--rank", type=int, default=64)
         parser.add_argument("--lora_alpha", type=int, default=64)
@@ -72,6 +75,15 @@ class ControlLowRankConfig(ConfigMixin):
         )
         mapped_args.train_qk_norm = argparse_args.train_qk_norm
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "control_type": self.control_type,
+            "rank": self.rank,
+            "lora_alpha": self.lora_alpha,
+            "target_modules": self.target_modules,
+            "train_qk_norm": self.train_qk_norm,
+        }
+
 
 class ControlFullRankConfig(ConfigMixin):
     r"""
@@ -83,7 +95,10 @@ class ControlFullRankConfig(ConfigMixin):
 
     def add_args(self, parser: argparse.ArgumentParser):
         parser.add_argument(
-            "--control_type", type=str, default=ControlType.CANNY, choices=list(ControlType.__members__.keys())
+            "--control_type",
+            type=str,
+            default=ControlType.CANNY.value,
+            choices=[x.value for x in ControlType.__members__.values()],
         )
         parser.add_argument("--train_qk_norm", action="store_true")
 
@@ -93,3 +108,9 @@ class ControlFullRankConfig(ConfigMixin):
     def map_args(self, argparse_args: argparse.Namespace, mapped_args: "BaseArgs"):
         mapped_args.control_type = argparse_args.control_type
         mapped_args.train_qk_norm = argparse_args.train_qk_norm
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "control_type": self.control_type,
+            "train_qk_norm": self.train_qk_norm,
+        }

@@ -31,7 +31,7 @@ def slow_down_tests():
     # Sleep between each test so that process groups are cleaned and resources are released.
     # Not doing so seems to randomly trigger some test failures, which wouldn't fail if run individually.
     # !!!Look into this in future!!!
-    time.sleep(3)
+    time.sleep(5)
 
 
 class ControlTrainerFastTestsMixin:

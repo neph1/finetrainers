@@ -1,0 +1,11 @@
+{
+  "data": [
+    {
+      "caption": "TRTCRD a trtcrd of a knight mounting a running horse wearing an armor and holding a staff, \"knight of wands\"",
+      "image_path": "https://huggingface.co/datasets/multimodalart/1920-raider-waite-tarot-public-domain/resolve/main/train/0603205238985_00_93f05f199fe56df4354be531f1666b53.jpg",
+      "num_inference_steps": 2,
+      "height": 1280,
+      "width": 720
+    }
+  ]
+}

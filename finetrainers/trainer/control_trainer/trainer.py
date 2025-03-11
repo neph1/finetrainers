@@ -23,7 +23,7 @@ from tqdm import tqdm
 from ... import data, logging, optimizer, parallel, patches, utils
 from ...config import TrainingType
 from ...state import State, TrainState
-from .data import IterableControlDataset
+from .data import IterableControlDataset, ValidationControlDataset
 
 
 if TYPE_CHECKING:
@@ -139,14 +139,11 @@ class ControlTrainer:
 
         transformer_lora_config = None
         if self.args.training_type == TrainingType.CONTROL_LORA:
-            target_modules = []
-            target_modules.extend(self.args.target_modules)
-            target_modules.extend(self.model_specification._control_layer_pattern)
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
                 lora_alpha=self.args.lora_alpha,
                 init_lora_weights=True,
-                target_modules=target_modules,
+                target_modules=self.args.target_modules,
             )
             self.transformer.add_adapter(transformer_lora_config)
 
@@ -369,6 +366,7 @@ class ControlTrainer:
         parallel_backend = self.state.parallel_backend
         train_state = self.state.train_state
         device = parallel_backend.device
+        dtype = self.args.transformer_dtype
 
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory before training start: {json.dumps(memory_statistics, indent=4)}")
@@ -475,8 +473,8 @@ class ControlTrainer:
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
 
-            utils.align_device_and_dtype(latent_model_conditions, device, self.args.transformer_dtype)
-            utils.align_device_and_dtype(condition_model_conditions, device, self.args.transformer_dtype)
+            latent_model_conditions = utils.align_device_and_dtype(latent_model_conditions, device, dtype)
+            condition_model_conditions = utils.align_device_and_dtype(condition_model_conditions, device, dtype)
             latent_model_conditions = utils.make_contiguous(latent_model_conditions)
             condition_model_conditions = utils.make_contiguous(condition_model_conditions)
 
@@ -634,6 +632,7 @@ class ControlTrainer:
 
         dataset = data.ValidationDataset(self.args.validation_dataset_file)
         dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, local_rank, dp_world_size)
+        dataset = ValidationControlDataset(dataset, self.args.control_type)
         validation_dataloader = data.DPDataLoader(
             local_rank,
             dataset,
@@ -661,10 +660,6 @@ class ControlTrainer:
             validation_data = next(data_iterator, None)
             if validation_data is None:
                 break
-
-            logger.debug(
-                f"Validating {validation_data=} on rank={parallel_backend.rank}.", local_main_process_only=False
-            )
 
             validation_data = validation_data[0]
             validation_artifacts = self.model_specification.validation(

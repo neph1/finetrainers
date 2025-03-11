@@ -6,9 +6,12 @@ import torch
 from accelerate import init_empty_weights
 from diffusers import AutoencoderKL, CogView4Pipeline, CogView4Transformer2DModel, FlowMatchEulerDiscreteScheduler
 
+from ... import data
 from ... import functional as FF
+from ...patches.dependencies.diffusers.control import control_channel_concat
 from ...processors import CogView4GLMProcessor, ProcessorMixin
-from ...typing import SchedulerType
+from ...typing import ArtifactType, SchedulerType
+from ...utils import get_non_null_items
 from ..modeling_utils import ControlModelSpecification
 from ..utils import DiagonalGaussianDistribution, _expand_linear_with_zeroed_weights
 from .base_specification import CogView4LatentEncodeProcessor, CogView4ModelSpecification
@@ -176,6 +179,44 @@ class CogView4ControlModelSpecification(CogView4ModelSpecification, ControlModel
         # return pred, target, sigmas
         return pred, target, shifted_sigmas
 
+    def validation(
+        self,
+        pipeline: CogView4Pipeline,
+        prompt: str,
+        control_image: torch.Tensor,
+        height: Optional[int] = None,
+        width: Optional[int] = None,
+        num_inference_steps: int = 50,
+        generator: Optional[torch.Generator] = None,
+        **kwargs,
+    ) -> List[ArtifactType]:
+        with torch.no_grad():
+            dtype = pipeline.vae.dtype
+            device = pipeline._execution_device
+            in_channels = self.transformer_config.in_channels  # We need to use the original in_channels
+            latents = pipeline.prepare_latents(1, in_channels, height, width, dtype, device, generator)
+            control_image = pipeline.image_processor.preprocess(control_image, height=height, width=width)
+            control_image = control_image.to(device=device, dtype=dtype)
+            control_latents = pipeline.vae.encode(control_image).latent_dist.sample(generator=generator)
+            control_latents = (control_latents - pipeline.vae.config.shift_factor) * pipeline.vae.config.scaling_factor
+
+        generation_kwargs = {
+            "latents": latents,
+            "prompt": prompt,
+            "height": height,
+            "width": width,
+            "num_inference_steps": num_inference_steps,
+            "generator": generator,
+            "return_dict": True,
+            "output_type": "pil",
+        }
+        generation_kwargs = get_non_null_items(generation_kwargs)
+
+        with control_channel_concat(pipeline.transformer, ["hidden_states"], [control_latents], dims=[1]):
+            image = pipeline(**generation_kwargs).images[0]
+
+        return [data.ImageArtifact(value=image)]
+
     def _save_lora_weights(
         self,
         directory: str,
@@ -212,10 +253,6 @@ class CogView4ControlModelSpecification(CogView4ModelSpecification, ControlModel
     @property
     def _original_in_features(self):
         return self.transformer_config.in_channels
-
-    @property
-    def _control_layer_pattern(self):
-        return "patch_embed.proj"
 
     @property
     def _qk_norm_identifiers(self):

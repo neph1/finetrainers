@@ -72,6 +72,7 @@ def _expand_linear_with_zeroed_weights(
         new_out_features = module.out_features
     bias = getattr(module, "bias", None)
     new_module = torch.nn.Linear(new_in_features, new_out_features)
+    new_module.to(device=module.weight.device, dtype=module.weight.dtype)
     new_module.weight.zero_()
     new_module.weight.data[: module.weight.data.shape[0], : module.weight.data.shape[1]].copy_(module.weight.data)
     if bias is not None:

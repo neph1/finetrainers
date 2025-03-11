@@ -621,10 +621,6 @@ class SFTTrainer:
             if validation_data is None:
                 break
 
-            logger.debug(
-                f"Validating {validation_data=} on rank={parallel_backend.rank}.", local_main_process_only=False
-            )
-
             validation_data = validation_data[0]
             validation_artifacts = self.model_specification.validation(
                 pipeline=pipeline, generator=generator, **validation_data

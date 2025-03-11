@@ -1,5 +1,5 @@
 import argparse
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 from ..config_utils import ConfigMixin
 
@@ -45,6 +45,9 @@ class SFTLowRankConfig(ConfigMixin):
         mapped_args.target_modules = (
             argparse_args.target_modules[0] if len(argparse_args.target_modules) == 1 else argparse_args.target_modules
         )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"rank": self.rank, "lora_alpha": self.lora_alpha, "target_modules": self.target_modules}
 
 
 class SFTFullRankConfig(ConfigMixin):
