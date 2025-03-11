@@ -860,12 +860,9 @@ class ControlTrainer:
         else:
             self._delete_components()
 
-            # Load the transformer weights from the final checkpoint if performing full-finetune
-            transformer = None
-            if self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
-                # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
-                new_in_features = self.model_specification._original_in_features * 2
-                transformer = self.model_specification.load_diffusion_models(new_in_features)["transformer"]
+            # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
+            new_in_features = self.model_specification._original_in_features * 2
+            transformer = self.model_specification.load_diffusion_models(new_in_features)["transformer"]
 
             self.transformer = transformer
             pipeline = self.model_specification.load_pipeline(
