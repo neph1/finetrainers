@@ -447,7 +447,8 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
                 caption_columns = [column for column in data.column_names if column in COMMON_WDS_CAPTION_COLUMN_NAMES]
                 if len(caption_columns) == 0:
                     raise ValueError(
-                        f"No common caption column found in the dataset. Supported columns are: {COMMON_WDS_CAPTION_COLUMN_NAMES}"
+                        f"No common caption column found in the dataset. Supported columns are: {COMMON_WDS_CAPTION_COLUMN_NAMES}. "
+                        f"Available columns are: {data.column_names}"
                     )
                 weights = [1] * len(caption_columns)
             else:
