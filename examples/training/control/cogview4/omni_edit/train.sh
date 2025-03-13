@@ -6,16 +6,19 @@ set -e -x
 # export TORCHDYNAMO_VERBOSE=1
 export WANDB_MODE="offline"
 export NCCL_P2P_DISABLE=1
+export NCCL_IB_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
-export FINETRAINERS_LOG_LEVEL="DEBUG"
+export FINETRAINERS_LOG_LEVEL="INFO"
 
 # Finetrainers supports multiple backends for distributed training. Select your favourite and benchmark the differences!
 # BACKEND="accelerate"
 BACKEND="ptd"
 
 # In this setting, I'm using 2 GPUs on a 4-GPU node for training
-NUM_GPUS=8
-CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
+# NUM_GPUS=8
+# CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
+NUM_GPUS=4
+CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 # Check the JSON files for the expected JSON format
 TRAINING_DATASET_CONFIG="examples/training/control/cogview4/omni_edit/training.json"
@@ -32,7 +35,8 @@ HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 
 
 # Parallel arguments
 parallel_cmd=(
-  $DDP_8
+  # $DDP_8
+  $DDP_4
 )
 
 # Model arguments
@@ -52,7 +56,7 @@ control_cmd=(
 # Dataset arguments
 dataset_cmd=(
   --dataset_config $TRAINING_DATASET_CONFIG
-  --dataset_shuffle_buffer_size 64
+  --dataset_shuffle_buffer_size 16
 )
 
 # Dataloader arguments
