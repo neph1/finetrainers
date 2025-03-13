@@ -924,15 +924,11 @@ class SFTTrainer:
             logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
 
             parallel_backend = self.state.parallel_backend
-            train_state = self.state.train_state
-            self.checkpointer.save(
-                train_state.step,
-                force=True,
-                _device=parallel_backend.device,
-                _is_main_process=parallel_backend.is_main_process,
-            )
-            self._delete_components(component_names=["transformer"])
-            torch.cuda.reset_peak_memory_stats(parallel_backend.device)
+            if parallel_backend.world_size == 1:
+                self._move_components_to_device([self.transformer], "cpu")
+                utils.free_memory()
+                utils.synchronize_device()
+                torch.cuda.reset_peak_memory_stats(parallel_backend.device)
 
             if self.args.precomputation_once:
                 consume_fn = preprocessor.consume_once
@@ -973,9 +969,8 @@ class SFTTrainer:
             self._delete_components(component_names)
             del latent_components, component_names, component_modules
 
-            self.checkpointer.load()
-            # TODO(aryan): handle PP carefully when you get to it
-            self.transformer = self.checkpointer.states["model"].model[0]
+            if parallel_backend.world_size == 1:
+                self._move_components_to_device([self.transformer])
 
         return condition_iterator, latent_iterator
 
