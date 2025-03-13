@@ -15,8 +15,8 @@ export FINETRAINERS_LOG_LEVEL="DEBUG"
 BACKEND="ptd"
 
 # In this setting, I'm using 2 GPUs on a 4-GPU node for training
-NUM_GPUS=1
-CUDA_VISIBLE_DEVICES="0"
+NUM_GPUS=8
+CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 
 # Check the JSON files for the expected JSON format
 TRAINING_DATASET_CONFIG="examples/training/control/cogview4/omni_edit/training.json"
@@ -26,13 +26,14 @@ VALIDATION_DATASET_FILE="examples/training/control/cogview4/omni_edit/validation
 DDP_1="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 1 --tp_degree 1"
 DDP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 1 --cp_degree 1 --tp_degree 1"
 DDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 4 --dp_shards 1 --cp_degree 1 --tp_degree 1"
+DDP_8="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 8 --dp_shards 1 --cp_degree 1 --tp_degree 1"
 FSDP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 2 --cp_degree 1 --tp_degree 1"
 FSDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 4 --cp_degree 1 --tp_degree 1"
 HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 --cp_degree 1 --tp_degree 1"
 
 # Parallel arguments
 parallel_cmd=(
-  $DDP_1
+  $DDP_8
 )
 
 # Model arguments
@@ -52,7 +53,7 @@ control_cmd=(
 # Dataset arguments
 dataset_cmd=(
   --dataset_config $TRAINING_DATASET_CONFIG
-  --dataset_shuffle_buffer_size 1
+  --dataset_shuffle_buffer_size 64
 )
 
 # Dataloader arguments
@@ -72,11 +73,11 @@ training_cmd=(
   --training_type control-lora
   --seed 42
   --batch_size 1
-  --train_steps 5
+  --train_steps 10000
   --gradient_accumulation_steps 1
   --gradient_checkpointing
-  --checkpointing_steps 4
-  --checkpointing_limit 2
+  --checkpointing_steps 1000
+  --checkpointing_limit 5
   # --resume_from_checkpoint 3000
   --enable_slicing
   --enable_tiling
@@ -85,9 +86,9 @@ training_cmd=(
 # Optimizer arguments
 optimizer_cmd=(
   --optimizer "adamw"
-  --lr 5e-5
+  --lr 3e-5
   --lr_scheduler "constant_with_warmup"
-  --lr_warmup_steps 1000
+  --lr_warmup_steps 2000
   --lr_num_cycles 1
   --beta1 0.9
   --beta2 0.99
@@ -99,13 +100,13 @@ optimizer_cmd=(
 # Validation arguments
 validation_cmd=(
   --validation_dataset_file "$VALIDATION_DATASET_FILE"
-  --validation_steps 5
+  --validation_steps 500
 )
 
 # Miscellaneous arguments
 miscellaneous_cmd=(
-  --tracker_name "finetrainers-cogview4"
-  --output_dir "/raid/aryan/cogview4"
+  --tracker_name "finetrainers-cogview4-control"
+  --output_dir "/fsx/aryan/cogview4-control"
   --init_timeout 600
   --nccl_timeout 600
   --report_to "wandb"
@@ -146,7 +147,7 @@ elif [ "$BACKEND" == "ptd" ]; then
     --nnodes=1 \
     --nproc_per_node=$NUM_GPUS \
     --rdzv_backend c10d \
-    --rdzv_endpoint="localhost:0" \
+    --rdzv_endpoint="localhost:19242" \
     train.py \
       "${parallel_cmd[@]}" \
       "${model_cmd[@]}" \

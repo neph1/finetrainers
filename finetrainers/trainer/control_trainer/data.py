@@ -4,6 +4,7 @@ import torch
 import torch.distributed.checkpoint.stateful
 from diffusers.video_processor import VideoProcessor
 
+from ... import functional as FF
 from ...logging import get_logger
 from ...processors import CannyProcessor
 from .config import ControlType
@@ -39,10 +40,51 @@ class IterableControlDataset(torch.utils.data.IterableDataset, torch.distributed
         return self.dataset.state_dict()
 
     def _run_control_processors(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        if "control_image" in data:
+            if "image" in data:
+                data["control_image"] = FF.resize_to_nearest_bucket_image(
+                    data["control_image"], [data["image"].shape[-2:]], resize_mode="bicubic"
+                )
+            if "video" in data:
+                batch_size, num_frames, num_channels, height, width = data["video"].shape
+                data["control_video"], _first_frame_only = FF.resize_to_nearest_bucket_video(
+                    data["control_video"], [[num_frames, height, width]], resize_mode="bicubic"
+                )
+                if _first_frame_only:
+                    msg = (
+                        "The number of frames in the control video is less than the minimum bucket size "
+                        "specified. The first frame is being used as a single frame video. This "
+                        "message is logged at the first occurence and for every 128th occurence "
+                        "after that."
+                    )
+                    logger.log_freq("WARNING", "BUCKET_TEMPORAL_SIZE_UNAVAILABLE_CONTROL", msg, frequency=128)
+                    data["control_video"] = data["control_video"][0]
+            return data
+
+        if "control_video" in data:
+            if "image" in data:
+                data["control_image"] = FF.resize_to_nearest_bucket_image(
+                    data["control_video"][0], [data["image"].shape[-2:]], resize_mode="bicubic"
+                )
+            if "video" in data:
+                batch_size, num_frames, num_channels, height, width = data["video"].shape
+                data["control_video"], _first_frame_only = FF.resize_to_nearest_bucket_video(
+                    data["control_video"], [[num_frames, height, width]], resize_mode="bicubic"
+                )
+                if _first_frame_only:
+                    msg = (
+                        "The number of frames in the control video is less than the minimum bucket size "
+                        "specified. The first frame is being used as a single frame video. This "
+                        "message is logged at the first occurence and for every 128th occurence "
+                        "after that."
+                    )
+                    logger.log_freq("WARNING", "BUCKET_TEMPORAL_SIZE_UNAVAILABLE_CONTROL", msg, frequency=128)
+                    data["control_video"] = data["control_video"][0]
+            return data
+
         if self.control_type == ControlType.CUSTOM:
             return data
-        if "control_image" in data or "control_video" in data:
-            return data
+
         shallow_copy_data = dict(data.items())
         is_image_control = "image" in shallow_copy_data
         is_video_control = "video" in shallow_copy_data

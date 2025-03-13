@@ -2,112 +2,112 @@
   "data": [
     {
       "caption": "Make the image look like it's from an ancient Egyptian mural.",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/0.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/0.png",
       "num_inference_steps": 30,
       "height": 1024,
       "width": 1024
     },
     {
       "caption": "Make it look like a cubist painting.",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/1.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/1.png",
       "num_inference_steps": 30,
       "height": 1360,
       "width": 768
     },
     {
       "caption": "turn the color of mushroom to gray",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/2.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/2.png",
       "num_inference_steps": 30,
       "height": 1024,
       "width": 1024
     },
     {
       "caption": "transform the setting to a misty atmosphere",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/3.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/3.png",
       "num_inference_steps": 30,
       "height": 1024,
       "width": 1024
     },
     {
       "caption": "Replace the vampire with cape with woman",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/4.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/4.png",
       "num_inference_steps": 30,
       "height": 1344,
       "width": 768
     },
     {
       "caption": "Convert this into a cartoon.",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/5.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/5.png",
       "num_inference_steps": 30,
       "height": 1152,
       "width": 768
     },
     {
       "caption": "Make it Pop Art.",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/6.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/6.png",
       "num_inference_steps": 30,
       "height": 1152,
       "width": 864
     },
     {
       "caption": "transform the setting to a stormy space",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/7.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/7.png",
       "num_inference_steps": 30,
       "height": 1024,
       "width": 1024
     },
     {
       "caption": "Change it to look like it's in the style of an impasto painting.",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/8.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/8.png",
       "num_inference_steps": 30,
       "height": 1152,
       "width": 768
     },
     {
       "caption": "Replace the MOVIES sign with RITZ sign",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/9.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/9.png",
       "num_inference_steps": 30,
       "height": 864,
       "width": 1152
     },
     {
       "caption": "transform the setting to a sunny day",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/10.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/10.png",
       "num_inference_steps": 30,
       "height": 1152,
       "width": 864
     },
     {
       "caption": "Replace the cobblestone street with road",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/11.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/11.png",
       "num_inference_steps": 30,
       "height": 1344,
       "width": 768
     },
     {
       "caption": "Replace the rolling hills with ocean",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/12.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/12.png",
       "num_inference_steps": 30,
       "height": 1344,
       "width": 768
     },
     {
       "caption": "change the setting to spring with blooming trees",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/13.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/13.png",
       "num_inference_steps": 30,
       "height": 1152,
       "width": 768
     },
     {
       "caption": "Make this photo look like a comic book",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/14.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/14.png",
       "num_inference_steps": 30,
       "height": 1360,
       "width": 768
     },
     {
       "caption": "Replace the ninja gloves with white gloves",
-      "image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/15.png",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/15.png",
       "num_inference_steps": 30,
       "height": 1344,
       "width": 768
