@@ -1,10 +1,11 @@
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import safetensors.torch
 import torch
 from accelerate import init_empty_weights
 from diffusers import AutoencoderKL, CogView4Pipeline, CogView4Transformer2DModel, FlowMatchEulerDiscreteScheduler
+from transformers import AutoTokenizer, GlmModel
 
 from ... import data
 from ... import functional as FF
@@ -14,10 +15,10 @@ from ...typing import ArtifactType, SchedulerType
 from ...utils import get_non_null_items
 from ..modeling_utils import ControlModelSpecification
 from ..utils import DiagonalGaussianDistribution, _expand_linear_with_zeroed_weights
-from .base_specification import CogView4LatentEncodeProcessor, CogView4ModelSpecification
+from .base_specification import CogView4LatentEncodeProcessor
 
 
-class CogView4ControlModelSpecification(CogView4ModelSpecification, ControlModelSpecification):
+class CogView4ControlModelSpecification(ControlModelSpecification):
     def __init__(
         self,
         pretrained_model_name_or_path: str = "THUDM/CogView4-6B",
@@ -63,6 +64,60 @@ class CogView4ControlModelSpecification(CogView4ModelSpecification, ControlModel
         self.latent_model_processors = latent_model_processors
         self.control_model_processors = control_model_processors
 
+    @property
+    def _resolution_dim_keys(self):
+        return {"latents": (2, 3)}
+
+    def load_condition_models(self) -> Dict[str, torch.nn.Module]:
+        if self.tokenizer_id is not None:
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.tokenizer_id, revision=self.revision, cache_dir=self.cache_dir
+            )
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.pretrained_model_name_or_path,
+                subfolder="tokenizer",
+                revision=self.revision,
+                cache_dir=self.cache_dir,
+            )
+
+        if self.text_encoder_id is not None:
+            text_encoder = GlmModel.from_pretrained(
+                self.text_encoder_id,
+                torch_dtype=self.text_encoder_dtype,
+                revision=self.revision,
+                cache_dir=self.cache_dir,
+            )
+        else:
+            text_encoder = GlmModel.from_pretrained(
+                self.pretrained_model_name_or_path,
+                subfolder="text_encoder",
+                torch_dtype=self.text_encoder_dtype,
+                revision=self.revision,
+                cache_dir=self.cache_dir,
+            )
+
+        return {"tokenizer": tokenizer, "text_encoder": text_encoder}
+
+    def load_latent_models(self) -> Dict[str, torch.nn.Module]:
+        if self.vae_id is not None:
+            vae = AutoencoderKL.from_pretrained(
+                self.vae_id,
+                torch_dtype=self.vae_dtype,
+                revision=self.revision,
+                cache_dir=self.cache_dir,
+            )
+        else:
+            vae = AutoencoderKL.from_pretrained(
+                self.pretrained_model_name_or_path,
+                subfolder="vae",
+                torch_dtype=self.vae_dtype,
+                revision=self.revision,
+                cache_dir=self.cache_dir,
+            )
+
+        return {"vae": vae}
+
     def load_diffusion_models(self, new_in_features: int) -> Dict[str, torch.nn.Module]:
         if self.transformer_id is not None:
             transformer = CogView4Transformer2DModel.from_pretrained(
@@ -89,6 +144,68 @@ class CogView4ControlModelSpecification(CogView4ModelSpecification, ControlModel
         scheduler = FlowMatchEulerDiscreteScheduler()
 
         return {"transformer": transformer, "scheduler": scheduler}
+
+    def load_pipeline(
+        self,
+        tokenizer: Optional[AutoTokenizer] = None,
+        text_encoder: Optional[GlmModel] = None,
+        transformer: Optional[CogView4Transformer2DModel] = None,
+        vae: Optional[AutoencoderKL] = None,
+        scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
+        enable_slicing: bool = False,
+        enable_tiling: bool = False,
+        enable_model_cpu_offload: bool = False,
+        training: bool = False,
+        **kwargs,
+    ) -> CogView4Pipeline:
+        components = {
+            "tokenizer": tokenizer,
+            "text_encoder": text_encoder,
+            "transformer": transformer,
+            "vae": vae,
+            # Load the scheduler based on CogView4's config instead of using the default initialization being used for training
+            # "scheduler": scheduler,
+        }
+        components = get_non_null_items(components)
+
+        pipe = CogView4Pipeline.from_pretrained(
+            self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
+        )
+        pipe.text_encoder.to(self.text_encoder_dtype)
+        pipe.vae.to(self.vae_dtype)
+
+        if not training:
+            pipe.transformer.to(self.transformer_dtype)
+
+        if enable_slicing:
+            pipe.vae.enable_slicing()
+        if enable_tiling:
+            pipe.vae.enable_tiling()
+        if enable_model_cpu_offload:
+            pipe.enable_model_cpu_offload()
+
+        return pipe
+
+    @torch.no_grad()
+    def prepare_conditions(
+        self,
+        tokenizer: AutoTokenizer,
+        text_encoder: GlmModel,
+        caption: str,
+        max_sequence_length: int = 1024,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        conditions = {
+            "tokenizer": tokenizer,
+            "text_encoder": text_encoder,
+            "caption": caption,
+            "max_sequence_length": max_sequence_length,
+            **kwargs,
+        }
+        input_keys = set(conditions.keys())
+        conditions = super().prepare_conditions(**conditions)
+        conditions = {k: v for k, v in conditions.items() if k not in input_keys}
+        return conditions
 
     @torch.no_grad()
     def prepare_latents(
@@ -152,8 +269,10 @@ class CogView4ControlModelSpecification(CogView4ModelSpecification, ControlModel
             control_latents = control_posterior.sample(generator=generator)
             del control_posterior
 
-        latents = (latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
-        control_latents = (control_latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
+        if getattr(self.vae_config, "shift_factor") is not None:
+            latents = (latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
+            control_latents = (control_latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
+
         noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
 

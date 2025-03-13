@@ -19,8 +19,8 @@ NUM_GPUS=1
 CUDA_VISIBLE_DEVICES="0"
 
 # Check the JSON files for the expected JSON format
-TRAINING_DATASET_CONFIG="examples/training/control/cogview4/canny/training.json"
-VALIDATION_DATASET_FILE="examples/training/control/cogview4/canny/validation.json"
+TRAINING_DATASET_CONFIG="examples/training/control/cogview4/omni_edit/training.json"
+VALIDATION_DATASET_FILE="examples/training/control/cogview4/omni_edit/validation.json"
 
 # Depending on how many GPUs you have available, choose your degree of parallelism and technique!
 DDP_1="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 1 --tp_degree 1"
@@ -43,18 +43,13 @@ model_cmd=(
 
 # Control arguments
 control_cmd=(
-  --control_type canny
+  --control_type custom
   --rank 128
   --lora_alpha 128
   --target_modules "(patch_embed.proj)|(transformer_blocks.*(to_q|to_k|to_v|to_out.0))"
 )
 
 # Dataset arguments
-# Here, we know that the dataset size if about ~80 images. In `training.json`, we duplicate the same
-# dataset 3 times for multi-resolution training. This gives us a total of about 240 images. Since
-# we're using 2 GPUs for training, we can split the data into 120 images per GPU and precompute
-# all embeddings at once, instead of doing it on-the-fly which would be slower (the ideal usecase
-# of not using `--precomputation_once` is when you're training on large datasets)
 dataset_cmd=(
   --dataset_config $TRAINING_DATASET_CONFIG
   --dataset_shuffle_buffer_size 1
@@ -104,7 +99,7 @@ optimizer_cmd=(
 # Validation arguments
 validation_cmd=(
   --validation_dataset_file "$VALIDATION_DATASET_FILE"
-  --validation_steps 3
+  --validation_steps 5
 )
 
 # Miscellaneous arguments
