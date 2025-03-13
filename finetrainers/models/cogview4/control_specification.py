@@ -317,7 +317,8 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
             control_image = pipeline.image_processor.preprocess(control_image, height=height, width=width)
             control_image = control_image.to(device=device, dtype=dtype)
             control_latents = pipeline.vae.encode(control_image).latent_dist.sample(generator=generator)
-            control_latents = (control_latents - pipeline.vae.config.shift_factor) * pipeline.vae.config.scaling_factor
+            if getattr(self.vae_config, "shift_factor") is not None:
+                control_latents = (control_latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
 
         generation_kwargs = {
             "latents": latents,

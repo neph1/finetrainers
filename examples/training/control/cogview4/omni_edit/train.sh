@@ -15,10 +15,10 @@ export FINETRAINERS_LOG_LEVEL="INFO"
 BACKEND="ptd"
 
 # In this setting, I'm using 2 GPUs on a 4-GPU node for training
-# NUM_GPUS=8
-# CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
-NUM_GPUS=4
-CUDA_VISIBLE_DEVICES="0,1,2,3"
+NUM_GPUS=8
+CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
+# NUM_GPUS=4
+# CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 # Check the JSON files for the expected JSON format
 TRAINING_DATASET_CONFIG="examples/training/control/cogview4/omni_edit/training.json"
@@ -35,8 +35,8 @@ HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 
 
 # Parallel arguments
 parallel_cmd=(
-  # $DDP_8
-  $DDP_4
+  $DDP_8
+  # $DDP_4
 )
 
 # Model arguments
@@ -77,7 +77,7 @@ training_cmd=(
   --seed 42
   --batch_size 1
   --train_steps 10000
-  --gradient_accumulation_steps 1
+  --gradient_accumulation_steps 4
   --gradient_checkpointing
   --checkpointing_steps 1000
   --checkpointing_limit 5
