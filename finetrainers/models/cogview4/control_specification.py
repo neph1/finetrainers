@@ -65,6 +65,10 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         self.control_model_processors = control_model_processors
 
     @property
+    def control_injection_layer_name(self):
+        return "patch_embed.proj"
+
+    @property
     def _resolution_dim_keys(self):
         return {"latents": (2, 3)}
 
@@ -371,8 +375,12 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
 
     @property
-    def _original_in_features(self):
+    def _original_control_layer_in_features(self):
         return self.transformer_config.in_channels
+
+    @property
+    def _original_control_layer_out_features(self):
+        return self.transformer_config.num_attention_heads * self.transformer_config.attention_head_dim
 
     @property
     def _qk_norm_identifiers(self):

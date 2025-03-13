@@ -649,27 +649,21 @@ class SFTTrainer:
             # TODO(aryan): Currently, we only support WandB so we've hardcoded it here. Needs to be revisited.
             for index, (key, artifact) in enumerate(list(artifacts.items())):
                 assert isinstance(artifact, (data.ImageArtifact, data.VideoArtifact))
+                if artifact.value is None:
+                    continue
 
                 time_, rank, ext = int(time.time()), parallel_backend.rank, artifact.file_extension
                 filename = "validation-" if not final_validation else "final-"
                 filename += f"{step}-{rank}-{index}-{prompt_filename}-{time_}.{ext}"
                 output_filename = os.path.join(self.args.output_dir, filename)
 
-                if parallel_backend.is_main_process and artifact.file_extension == "mp4":
+                if parallel_backend.is_main_process and ext in ["mp4", "jpg", "jpeg", "png"]:
                     main_process_prompts_to_filenames[PROMPT] = filename
 
-                if artifact.type == "image" and artifact.value is not None:
-                    logger.debug(
-                        f"Saving image from rank={parallel_backend.rank} to {output_filename}",
-                        local_main_process_only=False,
-                    )
+                if isinstance(artifact, data.ImageArtifact):
                     artifact.value.save(output_filename)
                     all_processes_artifacts.append(wandb.Image(output_filename, caption=PROMPT))
-                elif artifact.type == "video" and artifact.value is not None:
-                    logger.debug(
-                        f"Saving video from rank={parallel_backend.rank} to {output_filename}",
-                        local_main_process_only=False,
-                    )
+                elif isinstance(artifact, data.VideoArtifact):
                     export_to_video(artifact.value, output_filename, fps=EXPORT_FPS)
                     all_processes_artifacts.append(wandb.Video(output_filename, caption=PROMPT))
 

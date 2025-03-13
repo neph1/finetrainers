@@ -17,8 +17,6 @@ BACKEND="ptd"
 # In this setting, I'm using 2 GPUs on a 4-GPU node for training
 NUM_GPUS=8
 CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
-# NUM_GPUS=4
-# CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 # Check the JSON files for the expected JSON format
 TRAINING_DATASET_CONFIG="examples/training/control/cogview4/omni_edit/training.json"
@@ -50,7 +48,7 @@ control_cmd=(
   --control_type custom
   --rank 128
   --lora_alpha 128
-  --target_modules "(patch_embed.proj)|(transformer_blocks.*(to_q|to_k|to_v|to_out.0))"
+  --target_modules "transformer_blocks.*(to_q|to_k|to_v|to_out.0)"
 )
 
 # Dataset arguments
@@ -109,7 +107,7 @@ validation_cmd=(
 # Miscellaneous arguments
 miscellaneous_cmd=(
   --tracker_name "finetrainers-cogview4-control"
-  --output_dir "/fsx/aryan/cogview4-control"
+  --output_dir "/raid/aryan/cogview4-control"
   --init_timeout 600
   --nccl_timeout 600
   --report_to "wandb"

@@ -101,7 +101,7 @@ class ControlTrainer:
         logger.info("Initializing models")
 
         # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
-        new_in_features = self.model_specification._original_in_features * 2
+        new_in_features = self.model_specification._original_control_layer_in_features * 2
         diffusion_components = self.model_specification.load_diffusion_models(new_in_features)
         self._set_components(diffusion_components)
 
@@ -139,11 +139,21 @@ class ControlTrainer:
 
         transformer_lora_config = None
         if self.args.training_type == TrainingType.CONTROL_LORA:
+            target_modules = self.args.target_modules
+            if isinstance(target_modules, list):
+                target_modules = list(target_modules)  # Make a copy to avoid modifying args
+                target_modules.append(f"^{self.model_specification.control_injection_layer_name}$")
+            if isinstance(target_modules, str):
+                target_modules = f"(^{self.model_specification.control_injection_layer_name}$)|({target_modules})"
+
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
                 lora_alpha=self.args.lora_alpha,
                 init_lora_weights=True,
                 target_modules=self.args.target_modules,
+                rank_pattern={
+                    f"^{self.model_specification.control_injection_layer_name}$": self.model_specification._original_control_layer_out_features
+                },
             )
             self.transformer.add_adapter(transformer_lora_config)
 
@@ -669,6 +679,8 @@ class ControlTrainer:
             PROMPT = validation_data["prompt"]
             IMAGE = validation_data.get("image", None)
             VIDEO = validation_data.get("video", None)
+            CONTROL_IMAGE = validation_data.get("control_image", None)
+            CONTROL_VIDEO = validation_data.get("control_video", None)
             EXPORT_FPS = validation_data.get("export_fps", 30)
 
             # 2.1. If there are any initial images or videos, they will be logged to keep track of them as
@@ -677,6 +689,8 @@ class ControlTrainer:
             artifacts = {
                 "input_image": data.ImageArtifact(value=IMAGE),
                 "input_video": data.VideoArtifact(value=VIDEO),
+                "control_image": data.ImageArtifact(value=CONTROL_IMAGE),
+                "control_video": data.VideoArtifact(value=CONTROL_VIDEO),
             }
 
             # 2.2. Track the artifacts generated from validation
@@ -689,29 +703,32 @@ class ControlTrainer:
             # TODO(aryan): Currently, we only support WandB so we've hardcoded it here. Needs to be revisited.
             for index, (key, artifact) in enumerate(list(artifacts.items())):
                 assert isinstance(artifact, (data.ImageArtifact, data.VideoArtifact))
+                if artifact.value is None:
+                    continue
 
                 time_, rank, ext = int(time.time()), parallel_backend.rank, artifact.file_extension
                 filename = "validation-" if not final_validation else "final-"
                 filename += f"{step}-{rank}-{index}-{prompt_filename}-{time_}.{ext}"
-                output_filename = os.path.join(self.args.output_dir, filename)
 
-                if parallel_backend.is_main_process and artifact.file_extension == "mp4":
+                if parallel_backend.is_main_process and ext in ["mp4", "jpg", "jpeg", "png"]:
                     main_process_prompts_to_filenames[PROMPT] = filename
 
-                if artifact.type == "image" and artifact.value is not None:
-                    logger.debug(
-                        f"Saving image from rank={parallel_backend.rank} to {output_filename}",
-                        local_main_process_only=False,
-                    )
+                caption = PROMPT
+                if key == "control_image":
+                    filename = f"control_image-{filename}"
+                    caption = f"[control] {caption}"
+                elif key == "control_video":
+                    filename = f"control_video-{filename}"
+                    caption = f"[control] {caption}"
+
+                output_filename = os.path.join(self.args.output_dir, filename)
+
+                if isinstance(artifact, data.ImageArtifact):
                     artifact.value.save(output_filename)
-                    all_processes_artifacts.append(wandb.Image(output_filename, caption=PROMPT))
-                elif artifact.type == "video" and artifact.value is not None:
-                    logger.debug(
-                        f"Saving video from rank={parallel_backend.rank} to {output_filename}",
-                        local_main_process_only=False,
-                    )
+                    all_processes_artifacts.append(wandb.Image(output_filename, caption=caption))
+                elif isinstance(artifact, data.VideoArtifact):
                     export_to_video(artifact.value, output_filename, fps=EXPORT_FPS)
-                    all_processes_artifacts.append(wandb.Video(output_filename, caption=PROMPT))
+                    all_processes_artifacts.append(wandb.Video(output_filename, caption=caption))
 
         # 3. Cleanup & log artifacts
         parallel_backend.wait_for_everyone()
@@ -861,7 +878,7 @@ class ControlTrainer:
             self._delete_components()
 
             # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
-            new_in_features = self.model_specification._original_in_features * 2
+            new_in_features = self.model_specification._original_control_layer_in_features * 2
             transformer = self.model_specification.load_diffusion_models(new_in_features)["transformer"]
 
             self.transformer = transformer

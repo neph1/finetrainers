@@ -294,6 +294,13 @@ class ModelSpecification:
 
 
 class ControlModelSpecification(ModelSpecification):
+    @property
+    def control_injection_layer_name(self):
+        r"""Must return the FQN (fully-qualified name) of the control injection layer."""
+        raise NotImplementedError(
+            f"ControlModelSpecification::control_injection_layer_name is not implemented for {self.__class__.__name__}"
+        )
+
     def load_diffusion_models(self, new_in_features: int) -> Dict[str, Union[torch.nn.Module]]:
         raise NotImplementedError(
             f"ControlModelSpecification::load_diffusion_models is not implemented for {self.__class__.__name__}"
@@ -333,9 +340,23 @@ class ControlModelSpecification(ModelSpecification):
         )
 
     @property
-    def _original_in_features(self):
+    def _original_control_layer_in_features(self):
+        """
+        Original in_features of the input projection layer where control is injected.
+        """
         raise NotImplementedError(
-            f"ControlModelSpecification::_original_in_features is not implemented for {self.__class__.__name__}"
+            f"ControlModelSpecification::_original_control_layer_in_features is not implemented for {self.__class__.__name__}"
+        )
+
+    @property
+    def _original_control_layer_out_features(self):
+        """
+        Original out_features of the input projection layer where control is injected.
+
+        This will be used as the rank for control injection layer when performing low-rank training and unused otherwise.
+        """
+        raise NotImplementedError(
+            f"ControlModelSpecification::_original_control_layer_out_features is not implemented for {self.__class__.__name__}"
         )
 
     @property
