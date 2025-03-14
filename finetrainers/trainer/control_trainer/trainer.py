@@ -150,9 +150,9 @@ class ControlTrainer:
                 r=self.args.rank,
                 lora_alpha=self.args.lora_alpha,
                 init_lora_weights=True,
-                target_modules=self.args.target_modules,
+                target_modules=target_modules,
                 rank_pattern={
-                    f"^{self.model_specification.control_injection_layer_name}$": self.model_specification._original_control_layer_out_features
+                    self.model_specification.control_injection_layer_name: self.model_specification._original_control_layer_out_features
                 },
             )
             self.transformer.add_adapter(transformer_lora_config)
