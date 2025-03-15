@@ -887,7 +887,7 @@ def _initialize_local_dataset(dataset_name_or_root: str, dataset_type: str, infi
         raise ValueError("Found multiple metadata files. Please ensure there is only one metadata file.")
 
     suffix = metadata_files[0].suffix
-    if suffix == ".json" or suffix == ".parquet":
+    if suffix == ".json":
         return FileCaptionJsonDataset(root, infinite=infinite, file_type=dataset_type, dataset_format=suffix[1:])
     
     if len(metadata_files) == 1:
