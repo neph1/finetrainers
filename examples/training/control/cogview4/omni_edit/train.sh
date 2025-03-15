@@ -34,7 +34,6 @@ HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 
 # Parallel arguments
 parallel_cmd=(
   $DDP_8
-  # $DDP_4
 )
 
 # Model arguments
@@ -107,7 +106,7 @@ validation_cmd=(
 # Miscellaneous arguments
 miscellaneous_cmd=(
   --tracker_name "finetrainers-cogview4-control"
-  --output_dir "/raid/aryan/cogview4-control"
+  --output_dir "/fsx/aryan/cogview4-control-lora"
   --init_timeout 600
   --nccl_timeout 600
   --report_to "wandb"
