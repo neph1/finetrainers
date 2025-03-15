@@ -154,6 +154,9 @@ class ControlTrainer:
                 rank_pattern={
                     self.model_specification.control_injection_layer_name: self.model_specification._original_control_layer_out_features
                 },
+                alpha_pattern={
+                    self.model_specification.control_injection_layer_name: self.model_specification._original_control_layer_out_features
+                },
             )
             self.transformer.add_adapter(transformer_lora_config)
 
@@ -881,7 +884,6 @@ class ControlTrainer:
             new_in_features = self.model_specification._original_control_layer_in_features * 2
             transformer = self.model_specification.load_diffusion_models(new_in_features)["transformer"]
 
-            self.transformer = transformer
             pipeline = self.model_specification.load_pipeline(
                 transformer=transformer,
                 enable_slicing=self.args.enable_slicing,
