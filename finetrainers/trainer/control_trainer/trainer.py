@@ -114,6 +114,7 @@ class ControlTrainer:
         logger.info("Initializing trainable parameters")
 
         parallel_backend = self.state.parallel_backend
+        model_spec = self.model_specification
 
         if self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
             logger.info("Finetuning transformer with no additional parameters")
@@ -142,9 +143,9 @@ class ControlTrainer:
             target_modules = self.args.target_modules
             if isinstance(target_modules, list):
                 target_modules = list(target_modules)  # Make a copy to avoid modifying args
-                target_modules.append(f"^{self.model_specification.control_injection_layer_name}$")
+                target_modules.append(f"^{model_spec.control_injection_layer_name}$")
             if isinstance(target_modules, str):
-                target_modules = f"(^{self.model_specification.control_injection_layer_name}$)|({target_modules})"
+                target_modules = f"(^{model_spec.control_injection_layer_name}$)|({target_modules})"
 
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
@@ -152,16 +153,16 @@ class ControlTrainer:
                 init_lora_weights=True,
                 target_modules=target_modules,
                 rank_pattern={
-                    self.model_specification.control_injection_layer_name: self.model_specification._original_control_layer_out_features
+                    model_spec.control_injection_layer_name: model_spec._original_control_layer_out_features
                 },
                 alpha_pattern={
-                    self.model_specification.control_injection_layer_name: self.model_specification._original_control_layer_out_features
+                    model_spec.control_injection_layer_name: model_spec._original_control_layer_out_features
                 },
             )
             self.transformer.add_adapter(transformer_lora_config)
 
         if self.args.train_qk_norm:
-            qk_norm_identifiers = self.model_specification._qk_norm_identifiers
+            qk_norm_identifiers = model_spec._qk_norm_identifiers
             qk_norm_module_names, qk_norm_modules = [], []
 
             for name, module in self.transformer.named_modules():
@@ -171,8 +172,11 @@ class ControlTrainer:
                     qk_norm_module_names.append(name)
                     qk_norm_modules.append(module)
 
-            logger.info(f"Training QK norms for modules: {qk_norm_module_names}")
-            utils.set_requires_grad(qk_norm_modules, True)
+            if len(qk_norm_modules) > 0:
+                logger.info(f"Training QK norms for modules: {qk_norm_module_names}")
+                utils.set_requires_grad(qk_norm_modules, True)
+            else:
+                logger.warning(f"No QK norm modules found with identifiers: {qk_norm_identifiers}")
 
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
