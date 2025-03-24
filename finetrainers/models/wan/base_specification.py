@@ -14,13 +14,13 @@ from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, UMT5EncoderModel
 
-from ... import data
-from ... import functional as FF
-from ...logging import get_logger
-from ...processors import ProcessorMixin, T5Processor
-from ...typing import ArtifactType, SchedulerType
-from ...utils import get_non_null_items
-from ..modeling_utils import ModelSpecification
+import finetrainers.functional as FF
+from finetrainers.data import VideoArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ModelSpecification
+from finetrainers.processors import ProcessorMixin, T5Processor
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import get_non_null_items
 
 
 logger = get_logger()
@@ -121,70 +121,54 @@ class WanModelSpecification(ModelSpecification):
         return {"latents": (2, 3, 4)}
 
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
         if self.tokenizer_id is not None:
-            tokenizer = AutoTokenizer.from_pretrained(
-                self.tokenizer_id, revision=self.revision, cache_dir=self.cache_dir
-            )
+            tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_id, **common_kwargs)
         else:
             tokenizer = AutoTokenizer.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="tokenizer",
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.pretrained_model_name_or_path, subfolder="tokenizer", **common_kwargs
             )
 
         if self.text_encoder_id is not None:
             text_encoder = AutoModel.from_pretrained(
-                self.text_encoder_id,
-                torch_dtype=self.text_encoder_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.text_encoder_id, torch_dtype=self.text_encoder_dtype, **common_kwargs
             )
         else:
             text_encoder = UMT5EncoderModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="text_encoder",
                 torch_dtype=self.text_encoder_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                **common_kwargs,
             )
 
         return {"tokenizer": tokenizer, "text_encoder": text_encoder}
 
     def load_latent_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
         if self.vae_id is not None:
-            vae = AutoencoderKLWan.from_pretrained(
-                self.vae_id,
-                torch_dtype=self.vae_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
-            )
+            vae = AutoencoderKLWan.from_pretrained(self.vae_id, torch_dtype=self.vae_dtype, **common_kwargs)
         else:
             vae = AutoencoderKLWan.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="vae",
-                torch_dtype=self.vae_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.pretrained_model_name_or_path, subfolder="vae", torch_dtype=self.vae_dtype, **common_kwargs
             )
 
         return {"vae": vae}
 
     def load_diffusion_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
         if self.transformer_id is not None:
             transformer = WanTransformer3DModel.from_pretrained(
-                self.transformer_id,
-                torch_dtype=self.transformer_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
             )
         else:
             transformer = WanTransformer3DModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="transformer",
                 torch_dtype=self.transformer_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                **common_kwargs,
             )
 
         scheduler = FlowMatchEulerDiscreteScheduler()
@@ -351,7 +335,7 @@ class WanModelSpecification(ModelSpecification):
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
-        return [data.VideoArtifact(value=video)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,

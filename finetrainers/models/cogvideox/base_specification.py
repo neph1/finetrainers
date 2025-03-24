@@ -13,13 +13,14 @@ from diffusers import (
 from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
-from ... import data
-from ...logging import get_logger
-from ...processors import ProcessorMixin, T5Processor
-from ...typing import ArtifactType, SchedulerType
-from ...utils import get_non_null_items
-from ..modeling_utils import ModelSpecification
-from ..utils import DiagonalGaussianDistribution
+from finetrainers.data import VideoArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ModelSpecification
+from finetrainers.models.utils import DiagonalGaussianDistribution
+from finetrainers.processors import ProcessorMixin, T5Processor
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items
+
 from .utils import prepare_rotary_positional_embeddings
 
 
@@ -117,74 +118,58 @@ class CogVideoXModelSpecification(ModelSpecification):
         return {"latents": (1, 3, 4)}
 
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
         if self.tokenizer_id is not None:
-            tokenizer = AutoTokenizer.from_pretrained(
-                self.tokenizer_id, revision=self.revision, cache_dir=self.cache_dir
-            )
+            tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_id, **common_kwargs)
         else:
             tokenizer = T5Tokenizer.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="tokenizer",
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.pretrained_model_name_or_path, subfolder="tokenizer", **common_kwargs
             )
 
         if self.text_encoder_id is not None:
             text_encoder = AutoModel.from_pretrained(
-                self.text_encoder_id,
-                torch_dtype=self.text_encoder_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.text_encoder_id, torch_dtype=self.text_encoder_dtype, **common_kwargs
             )
         else:
             text_encoder = T5EncoderModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="text_encoder",
                 torch_dtype=self.text_encoder_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                **common_kwargs,
             )
 
         return {"tokenizer": tokenizer, "text_encoder": text_encoder}
 
     def load_latent_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
         if self.vae_id is not None:
-            vae = AutoencoderKLCogVideoX.from_pretrained(
-                self.vae_id,
-                torch_dtype=self.vae_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
-            )
+            vae = AutoencoderKLCogVideoX.from_pretrained(self.vae_id, torch_dtype=self.vae_dtype, **common_kwargs)
         else:
             vae = AutoencoderKLCogVideoX.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="vae",
-                torch_dtype=self.vae_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.pretrained_model_name_or_path, subfolder="vae", torch_dtype=self.vae_dtype, **common_kwargs
             )
 
         return {"vae": vae}
 
     def load_diffusion_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
         if self.transformer_id is not None:
             transformer = CogVideoXTransformer3DModel.from_pretrained(
-                self.transformer_id,
-                torch_dtype=self.transformer_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
             )
         else:
             transformer = CogVideoXTransformer3DModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="transformer",
                 torch_dtype=self.transformer_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                **common_kwargs,
             )
 
         scheduler = CogVideoXDDIMScheduler.from_pretrained(
-            self.pretrained_model_name_or_path, subfolder="scheduler", revision=self.revision, cache_dir=self.cache_dir
+            self.pretrained_model_name_or_path, subfolder="scheduler", **common_kwargs
         )
 
         return {"transformer": transformer, "scheduler": scheduler}
@@ -217,16 +202,11 @@ class CogVideoXModelSpecification(ModelSpecification):
         pipe.text_encoder.to(self.text_encoder_dtype)
         pipe.vae.to(self.vae_dtype)
 
+        _enable_vae_memory_optimizations(pipe.vae, enable_slicing, enable_tiling)
         if not training:
             pipe.transformer.to(self.transformer_dtype)
-
-        if enable_slicing:
-            pipe.vae.enable_slicing()
-        if enable_tiling:
-            pipe.vae.enable_tiling()
         if enable_model_cpu_offload:
             pipe.enable_model_cpu_offload()
-
         return pipe
 
     @torch.no_grad()
@@ -380,7 +360,7 @@ class CogVideoXModelSpecification(ModelSpecification):
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
-        return [data.VideoArtifact(value=video)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,

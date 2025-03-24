@@ -12,13 +12,13 @@ from diffusers import (
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import AutoTokenizer, GlmModel
 
-from ... import data
-from ... import functional as FF
-from ...logging import get_logger
-from ...processors import CogView4GLMProcessor, ProcessorMixin
-from ...typing import ArtifactType, SchedulerType
-from ...utils import get_non_null_items
-from ..modeling_utils import ModelSpecification
+import finetrainers.functional as FF
+from finetrainers.data import ImageArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ModelSpecification
+from finetrainers.processors import CogView4GLMProcessor, ProcessorMixin
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items
 
 
 logger = get_logger()
@@ -136,70 +136,54 @@ class CogView4ModelSpecification(ModelSpecification):
         return {"latents": (2, 3)}
 
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
         if self.tokenizer_id is not None:
-            tokenizer = AutoTokenizer.from_pretrained(
-                self.tokenizer_id, revision=self.revision, cache_dir=self.cache_dir
-            )
+            tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_id, **common_kwargs)
         else:
             tokenizer = AutoTokenizer.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="tokenizer",
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.pretrained_model_name_or_path, subfolder="tokenizer", **common_kwargs
             )
 
         if self.text_encoder_id is not None:
             text_encoder = GlmModel.from_pretrained(
-                self.text_encoder_id,
-                torch_dtype=self.text_encoder_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.text_encoder_id, torch_dtype=self.text_encoder_dtype, **common_kwargs
             )
         else:
             text_encoder = GlmModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="text_encoder",
                 torch_dtype=self.text_encoder_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                **common_kwargs,
             )
 
         return {"tokenizer": tokenizer, "text_encoder": text_encoder}
 
     def load_latent_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
         if self.vae_id is not None:
-            vae = AutoencoderKL.from_pretrained(
-                self.vae_id,
-                torch_dtype=self.vae_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
-            )
+            vae = AutoencoderKL.from_pretrained(self.vae_id, torch_dtype=self.vae_dtype, **common_kwargs)
         else:
             vae = AutoencoderKL.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="vae",
-                torch_dtype=self.vae_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.pretrained_model_name_or_path, subfolder="vae", torch_dtype=self.vae_dtype, **common_kwargs
             )
 
         return {"vae": vae}
 
     def load_diffusion_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
         if self.transformer_id is not None:
             transformer = CogView4Transformer2DModel.from_pretrained(
-                self.transformer_id,
-                torch_dtype=self.transformer_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
             )
         else:
             transformer = CogView4Transformer2DModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="transformer",
                 torch_dtype=self.transformer_dtype,
-                revision=self.revision,
-                cache_dir=self.cache_dir,
+                **common_kwargs,
             )
 
         scheduler = FlowMatchEulerDiscreteScheduler()
@@ -235,16 +219,11 @@ class CogView4ModelSpecification(ModelSpecification):
         pipe.text_encoder.to(self.text_encoder_dtype)
         pipe.vae.to(self.vae_dtype)
 
+        _enable_vae_memory_optimizations(pipe.vae, enable_slicing, enable_tiling)
         if not training:
             pipe.transformer.to(self.transformer_dtype)
-
-        if enable_slicing:
-            pipe.vae.enable_slicing()
-        if enable_tiling:
-            pipe.vae.enable_tiling()
         if enable_model_cpu_offload:
             pipe.enable_model_cpu_offload()
-
         return pipe
 
     @torch.no_grad()
@@ -312,7 +291,11 @@ class CogView4ModelSpecification(ModelSpecification):
             latents = posterior.sample(generator=generator)
             del posterior
 
-        latents = (latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
+        if getattr(self.vae_config, "shift_factor", None) is not None:
+            latents = (latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
+        else:
+            latents = latents * self.vae_config.scaling_factor
+
         noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
 
@@ -362,7 +345,7 @@ class CogView4ModelSpecification(ModelSpecification):
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         image = pipeline(**generation_kwargs).images[0]
-        return [data.ImageArtifact(value=image)]
+        return [ImageArtifact(value=image)]
 
     def _save_lora_weights(
         self,
