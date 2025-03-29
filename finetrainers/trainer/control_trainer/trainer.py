@@ -20,6 +20,8 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
+from finetrainers.parallel.ptd import PTDCheckpointer
+
 from ... import data, logging, optimizer, parallel, patches, utils
 from ...config import TrainingType
 from ...state import State, TrainState
@@ -362,7 +364,7 @@ class ControlTrainer:
             parallel_backend.wait_for_everyone()
 
         enable_state_checkpointing = self.args.checkpointing_steps > 0
-        self.checkpointer = utils.PTDCheckpointManager(
+        self.checkpointer = parallel_backend.get_checkpointer(
             dataloader=self.dataloader,
             model_parts=[self.transformer],
             optimizers=self.optimizer,

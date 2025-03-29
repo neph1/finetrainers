@@ -11,7 +11,9 @@ from diffusers import (
     AutoencoderKLHunyuanVideo,
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
-from transformers import AutoModel, AutoTokenizer, UMT5EncoderModel
+from transformers import AutoTokenizer, UMT5EncoderModel, CLIPTextModel, CLIPTokenizer, LlamaModel
+
+from finetrainers.utils.diffusion import _enable_vae_memory_optimizations
 
 from ... import data
 from ... import functional as FF
@@ -28,7 +30,7 @@ from .base_specification import HunyuanLatentEncodeProcessor
 logger = get_logger()
 
 
-class WanControlModelSpecification(ControlModelSpecification):
+class HunyuanVideoControlModelSpecification(ControlModelSpecification):
     def __init__(
         self,
         pretrained_model_name_or_path: str = "hunyuanvideo-community/HunyuanVideo",
@@ -88,19 +90,43 @@ class WanControlModelSpecification(ControlModelSpecification):
                 self.pretrained_model_name_or_path, subfolder="tokenizer", **common_kwargs
             )
 
+        if self.tokenizer_2_id is not None:
+            tokenizer_2 = AutoTokenizer.from_pretrained(self.tokenizer_2_id, **common_kwargs)
+        else:
+            tokenizer_2 = CLIPTokenizer.from_pretrained(
+                self.pretrained_model_name_or_path, subfolder="tokenizer_2", **common_kwargs
+            )
+
         if self.text_encoder_id is not None:
-            text_encoder = AutoModel.from_pretrained(
+            text_encoder = LlamaModel.from_pretrained(
                 self.text_encoder_id, torch_dtype=self.text_encoder_dtype, **common_kwargs
             )
         else:
-            text_encoder = UMT5EncoderModel.from_pretrained(
+            text_encoder = LlamaModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="text_encoder",
                 torch_dtype=self.text_encoder_dtype,
                 **common_kwargs,
             )
 
-        return {"tokenizer": tokenizer, "text_encoder": text_encoder}
+        if self.text_encoder_2_id is not None:
+            text_encoder_2 = CLIPTextModel.from_pretrained(
+                self.text_encoder_2_id, torch_dtype=self.text_encoder_2_dtype, **common_kwargs
+            )
+        else:
+            text_encoder_2 = CLIPTextModel.from_pretrained(
+                self.pretrained_model_name_or_path,
+                subfolder="text_encoder_2",
+                torch_dtype=self.text_encoder_2_dtype,
+                **common_kwargs,
+            )
+
+        return {
+            "tokenizer": tokenizer,
+            "tokenizer_2": tokenizer_2,
+            "text_encoder": text_encoder,
+            "text_encoder_2": text_encoder_2,
+        }
 
     def load_latent_models(self) -> Dict[str, torch.nn.Module]:
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
@@ -113,6 +139,25 @@ class WanControlModelSpecification(ControlModelSpecification):
             )
 
         return {"vae": vae}
+
+    def load_diffusion_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
+        if self.transformer_id is not None:
+            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
+                self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
+            )
+        else:
+            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
+                self.pretrained_model_name_or_path,
+                subfolder="transformer",
+                torch_dtype=self.transformer_dtype,
+                **common_kwargs,
+            )
+
+        scheduler = FlowMatchEulerDiscreteScheduler()
+
+        return {"transformer": transformer, "scheduler": scheduler}
 
     def load_diffusion_models(self, new_in_features: int) -> Dict[str, torch.nn.Module]:
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
@@ -129,11 +174,7 @@ class WanControlModelSpecification(ControlModelSpecification):
                 **common_kwargs,
             )
 
-        transformer.patch_embedding = _expand_conv3d_with_zeroed_weights(
-            transformer.patch_embedding, new_in_channels=new_in_features
-        )
         transformer.register_to_config(in_channels=new_in_features)
-
         scheduler = FlowMatchEulerDiscreteScheduler()
 
         return {"transformer": transformer, "scheduler": scheduler}
@@ -141,7 +182,9 @@ class WanControlModelSpecification(ControlModelSpecification):
     def load_pipeline(
         self,
         tokenizer: Optional[AutoTokenizer] = None,
-        text_encoder: Optional[UMT5EncoderModel] = None,
+        tokenizer_2: Optional[CLIPTokenizer] = None,
+        text_encoder: Optional[LlamaModel] = None,
+        text_encoder_2: Optional[CLIPTextModel] = None,
         transformer: Optional[HunyuanVideoTransformer3DModel] = None,
         vae: Optional[AutoencoderKLHunyuanVideo] = None,
         scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
@@ -153,7 +196,9 @@ class WanControlModelSpecification(ControlModelSpecification):
     ) -> HunyuanVideoPipeline:
         components = {
             "tokenizer": tokenizer,
+            "tokenizer_2": tokenizer_2,
             "text_encoder": text_encoder,
+            "text_encoder_2": text_encoder_2,
             "transformer": transformer,
             "vae": vae,
             "scheduler": scheduler,
@@ -164,33 +209,32 @@ class WanControlModelSpecification(ControlModelSpecification):
             self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
         )
         pipe.text_encoder.to(self.text_encoder_dtype)
+        pipe.text_encoder_2.to(self.text_encoder_2_dtype)
         pipe.vae.to(self.vae_dtype)
 
+        _enable_vae_memory_optimizations(pipe.vae, enable_slicing, enable_tiling)
         if not training:
             pipe.transformer.to(self.transformer_dtype)
-
-        # TODO(aryan): add support in diffusers
-        # if enable_slicing:
-        #     pipe.vae.enable_slicing()
-        # if enable_tiling:
-        #     pipe.vae.enable_tiling()
         if enable_model_cpu_offload:
             pipe.enable_model_cpu_offload()
-
         return pipe
-
+    
     @torch.no_grad()
     def prepare_conditions(
         self,
         tokenizer: AutoTokenizer,
-        text_encoder: UMT5EncoderModel,
+        tokenizer_2: CLIPTokenizer,
+        text_encoder: LlamaModel,
+        text_encoder_2: CLIPTextModel,
         caption: str,
-        max_sequence_length: int = 512,
+        max_sequence_length: int = 256,
         **kwargs,
     ) -> Dict[str, Any]:
         conditions = {
             "tokenizer": tokenizer,
+            "tokenizer_2": tokenizer_2,
             "text_encoder": text_encoder,
+            "text_encoder_2": text_encoder_2,
             "caption": caption,
             "max_sequence_length": max_sequence_length,
             **kwargs,
@@ -200,7 +244,7 @@ class WanControlModelSpecification(ControlModelSpecification):
         conditions = {k: v for k, v in conditions.items() if k not in input_keys}
         conditions.pop("prompt_attention_mask", None)
         return conditions
-
+    
     @torch.no_grad()
     def prepare_latents(
         self,
@@ -216,10 +260,7 @@ class WanControlModelSpecification(ControlModelSpecification):
         common_kwargs = {
             "vae": vae,
             "generator": generator,
-            # We must force this to False because the latent normalization should be done before
-            # the posterior is computed. The VAE does not handle this any more:
-            # https://github.com/huggingface/diffusers/pull/10998
-            "compute_posterior": False,
+            "compute_posterior": compute_posterior,
             **kwargs,
         }
         conditions = {"image": image, "video": video, **common_kwargs}
@@ -242,11 +283,11 @@ class WanControlModelSpecification(ControlModelSpecification):
         condition_model_conditions: Dict[str, torch.Tensor],
         latent_model_conditions: Dict[str, torch.Tensor],
         sigmas: torch.Tensor,
+        guidance: float = 1.0,
         generator: Optional[torch.Generator] = None,
         compute_posterior: bool = True,
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
-        compute_posterior = False  # See explanation in prepare_latents
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
             control_latents = latent_model_conditions.pop("control_latents")
@@ -276,6 +317,7 @@ class WanControlModelSpecification(ControlModelSpecification):
 
         noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
+        guidance = latents.new_full((latents.size(0),), fill_value=guidance) * 1000.0
 
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
         control_latents = self._prepare_temporal_control_latents(
@@ -289,6 +331,7 @@ class WanControlModelSpecification(ControlModelSpecification):
         noisy_latents = torch.cat([noisy_latents, control_latents], dim=1)
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
+        latent_model_conditions["guidance"] = guidance
 
         pred = transformer(
             **latent_model_conditions,
@@ -296,6 +339,7 @@ class WanControlModelSpecification(ControlModelSpecification):
             timestep=timesteps,
             return_dict=False,
         )[0]
+        
         target = FF.flow_match_target(noise, latents)
 
         return pred, target, sigmas

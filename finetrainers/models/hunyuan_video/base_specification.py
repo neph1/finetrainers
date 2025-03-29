@@ -37,7 +37,7 @@ class HunyuanLatentEncodeProcessor(ProcessorMixin):
     def __init__(self, output_names: List[str]):
         super().__init__()
         self.output_names = output_names
-        assert len(self.output_names) == 1
+        assert len(self.output_names) == 3
 
     def forward(
         self,
