@@ -86,25 +86,6 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
 
     load_pipeline = hunyuan_common.load_pipeline
 
-    def load_diffusion_models(self) -> Dict[str, torch.nn.Module]:
-        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
-
-        if self.transformer_id is not None:
-            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
-                self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
-            )
-        else:
-            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="transformer",
-                torch_dtype=self.transformer_dtype,
-                **common_kwargs,
-            )
-
-        scheduler = FlowMatchEulerDiscreteScheduler()
-
-        return {"transformer": transformer, "scheduler": scheduler}
-
     def load_diffusion_models(self, new_in_features: int) -> Dict[str, torch.nn.Module]:
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
 

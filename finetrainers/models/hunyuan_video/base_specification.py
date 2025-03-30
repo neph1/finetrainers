@@ -19,7 +19,7 @@ from ... import functional as FF
 from ...logging import get_logger
 from ...processors import CLIPPooledProcessor, LlamaProcessor, ProcessorMixin
 from ...typing import ArtifactType, SchedulerType
-from ...utils import _enable_vae_memory_optimizations, get_non_null_items
+from ...utils import get_non_null_items
 from ..modeling_utils import ModelSpecification
 
 
