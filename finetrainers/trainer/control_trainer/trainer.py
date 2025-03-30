@@ -969,6 +969,13 @@ class ControlTrainer:
             # )
             # self._delete_components(component_names=["transformer", "unet"])
 
+            parallel_backend = self.state.parallel_backend
+            if parallel_backend.world_size == 1:
+                self._move_components_to_device([self.transformer], "cpu")
+                utils.free_memory()
+                utils.synchronize_device()
+                torch.cuda.reset_peak_memory_stats(parallel_backend.device)
+
             if self.args.precomputation_once:
                 consume_fn = preprocessor.consume_once
             else:
