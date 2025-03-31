@@ -11,22 +11,20 @@ from diffusers import (
     AutoencoderKLHunyuanVideo,
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
-from transformers import AutoTokenizer, UMT5EncoderModel, CLIPTextModel, CLIPTokenizer, LlamaModel
+from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel
 
 from finetrainers.models.hunyuan_video import hunyuan_common
-from finetrainers.utils.diffusion import _enable_vae_memory_optimizations
 
 from ... import data
 from ... import functional as FF
 from ...logging import get_logger
 from ...patches.dependencies.diffusers.control import control_channel_concat
-from ...processors import ProcessorMixin, T5Processor
+from ...processors import ProcessorMixin
 from ...typing import ArtifactType, FrameConditioningType, SchedulerType
 from ...utils import get_non_null_items
 from ..modeling_utils import ControlModelSpecification
-from ..utils import _expand_conv3d_with_zeroed_weights
 from .base_specification import HunyuanLatentEncodeProcessor
-
+from ...processors import CLIPPooledProcessor, LlamaProcessor, ProcessorMixin
 
 logger = get_logger()
 
@@ -62,7 +60,13 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         )
 
         if condition_model_processors is None:
-            condition_model_processors = [T5Processor(["encoder_hidden_states", "prompt_attention_mask"])]
+            condition_model_processors = [
+                LlamaProcessor(["encoder_hidden_states", "encoder_attention_mask"]),
+                CLIPPooledProcessor(
+                    ["pooled_projections"],
+                    input_names={"tokenizer_2": "tokenizer", "text_encoder_2": "text_encoder"},
+                ),
+            ]
         if latent_model_processors is None:
             latent_model_processors = [HunyuanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
         if control_model_processors is None:
