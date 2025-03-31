@@ -105,6 +105,9 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
                 **common_kwargs,
             )
 
+        # TODO(neph1): Need to update the patch embed layer
+        # transformer.x_embedder = HunyuanVideoPatchEmbed((patch_size_t, patch_size, patch_size), new_in_features)
+
         transformer.register_to_config(in_channels=new_in_features)
         scheduler = FlowMatchEulerDiscreteScheduler()
 
