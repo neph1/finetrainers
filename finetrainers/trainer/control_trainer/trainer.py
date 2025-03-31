@@ -1017,6 +1017,8 @@ class ControlTrainer:
 
             # self.checkpointer.load()
             # self.transformer = self.checkpointer.states["model"].model[0]
+            if parallel_backend.world_size == 1:
+                self._move_components_to_device([self.transformer])
 
         return condition_iterator, latent_iterator
 
