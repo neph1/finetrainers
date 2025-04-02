@@ -12,8 +12,8 @@ from diffusers import (
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel
-
 from finetrainers.models.hunyuan_video import hunyuan_common
+from finetrainers.models.utils import _expand_conv3d_with_zeroed_weights
 
 from ... import data
 from ... import functional as FF
@@ -78,7 +78,7 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
 
     @property
     def control_injection_layer_name(self) -> str:
-        return "patch_embedding"
+        return "x_embedder.proj"
 
     @property
     def _resolution_dim_keys(self):
@@ -105,9 +105,9 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
                 **common_kwargs,
             )
 
-        # TODO(neph1): Need to update the patch embed layer
-        # transformer.x_embedder = HunyuanVideoPatchEmbed((patch_size_t, patch_size, patch_size), new_in_features)
-
+        transformer.x_embedder.proj = _expand_conv3d_with_zeroed_weights(
+            transformer.x_embedder.proj, new_in_channels=new_in_features
+        )
         transformer.register_to_config(in_channels=new_in_features)
         scheduler = FlowMatchEulerDiscreteScheduler()
 
