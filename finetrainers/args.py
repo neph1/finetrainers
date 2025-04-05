@@ -87,6 +87,8 @@ class BaseArgs:
         Modules to skip for layerwise upcasting. Layers such as normalization and modulation, when casted to fp8 precision
         naively (as done in layerwise upcasting), can lead to poorer training and inference quality. We skip these layers
         by default, and recommend adding more layers to the default list based on the model architecture.
+    pretrained_lora_path (`str`, defaults to `None`):
+        Path to pretrained LoRA model to load. This is if you want train with another LoRA model as a base.
 
     DATASET ARGUMENTS
     -----------------
@@ -312,7 +314,8 @@ class BaseArgs:
         "^proj_in$",
         "^proj_out$",
         "norm",
-    ]
+    ],
+    pretrained_lora_path: Optional[str] = None
 
     # Dataset arguments
     dataset_config: str = None
@@ -416,6 +419,7 @@ class BaseArgs:
             "layerwise_upcasting_modules": self.layerwise_upcasting_modules,
             "layerwise_upcasting_storage_dtype": self.layerwise_upcasting_storage_dtype,
             "layerwise_upcasting_skip_modules_pattern": self.layerwise_upcasting_skip_modules_pattern,
+            "pretrained_lora_path": self.pretrained_lora_path,
         }
         model_arguments = get_non_null_items(model_arguments)
 
@@ -761,6 +765,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.layerwise_upcasting_modules = args.layerwise_upcasting_modules
     result_args.layerwise_upcasting_storage_dtype = _DTYPE_MAP[args.layerwise_upcasting_storage_dtype]
     result_args.layerwise_upcasting_skip_modules_pattern = args.layerwise_upcasting_skip_modules_pattern
+    result_args.pretrained_lora_path = args.pretrained_lora_path
 
     # Dataset arguments
     result_args.dataset_config = args.dataset_config

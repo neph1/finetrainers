@@ -60,6 +60,7 @@ def main():
             vae_dtype=args.vae_dtype,
             revision=args.revision,
             cache_dir=args.cache_dir,
+            pretrained_lora_path=args.pretrained_lora_path,
         )
 
         if args.training_type in [TrainingType.LORA, TrainingType.FULL_FINETUNE]:

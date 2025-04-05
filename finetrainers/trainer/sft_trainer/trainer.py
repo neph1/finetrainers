@@ -884,7 +884,10 @@ class SFTTrainer:
 
             # Load the LoRA weights if performing LoRA finetuning
             if self.args.training_type == TrainingType.LORA:
-                pipeline.load_lora_weights(self.args.output_dir)
+                if self.args.pretrained_lora_path is not None:
+                    pipeline.load_lora_weights(self.pretrained_lora_path)
+                else:
+                    pipeline.load_lora_weights(self.args.output_dir)
 
         components = {module_name: getattr(pipeline, module_name, None) for module_name in module_names}
         self._set_components(components)
