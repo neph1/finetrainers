@@ -100,9 +100,7 @@ def convert_lora_sd(diffusers_lora_sd):
                 converted_lora_sd[linear1_B_key] = linear1_B
 
             elif "proj_out" in key:
-                new_key = key.replace("proj_out", "linear2").replace(
-                    single_block_pattern, prefix + "single_blocks"
-                )
+                new_key = key.replace("proj_out", "linear2").replace(single_block_pattern, prefix + "single_blocks")
                 converted_lora_sd[new_key] = diffusers_lora_sd[key]
 
         else:
