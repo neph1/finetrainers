@@ -17,10 +17,13 @@ def convert_lora_sd(diffusers_lora_sd):
 
     prefix = "diffusion_model."
 
+    double_block_pattern = "transformer.transformer_blocks"
+    single_block_pattern = "transformer.single_transformer_blocks"
+
     converted_lora_sd = {}
     for key in diffusers_lora_sd.keys():
         # double_blocks
-        if key.startswith("transformer_blocks"):
+        if key.startswith(double_block_pattern):
             # img_attn
             if key.endswith("to_q.lora_A.weight"):
                 # lora_A
@@ -29,7 +32,7 @@ def convert_lora_sd(diffusers_lora_sd):
                 to_v_A = diffusers_lora_sd[key.replace("to_q", "to_v")]
 
                 to_qkv_A = torch.cat([to_q_A, to_k_A, to_v_A], dim=0)
-                qkv_A_key = key.replace("transformer_blocks", prefix + "double_blocks").replace(
+                qkv_A_key = key.replace(double_block_pattern, prefix + "double_blocks").replace(
                     "attn.to_q", "img_attn_qkv"
                 )
                 converted_lora_sd[qkv_A_key] = to_qkv_A
@@ -51,7 +54,7 @@ def convert_lora_sd(diffusers_lora_sd):
                 to_v_A = diffusers_lora_sd[key.replace("add_q_proj", "add_v_proj")]
 
                 to_qkv_A = torch.cat([to_q_A, to_k_A, to_v_A], dim=0)
-                qkv_A_key = key.replace("transformer_blocks", prefix + "double_blocks").replace(
+                qkv_A_key = key.replace(double_block_pattern, prefix + "double_blocks").replace(
                     "attn.add_q_proj", "txt_attn_qkv"
                 )
                 converted_lora_sd[qkv_A_key] = to_qkv_A
@@ -68,11 +71,11 @@ def convert_lora_sd(diffusers_lora_sd):
             # just rename
             for k, v in double_block_patterns.items():
                 if k in key:
-                    new_key = key.replace(k, v).replace("transformer_blocks", prefix + "double_blocks")
+                    new_key = key.replace(k, v).replace(double_block_pattern, prefix + "double_blocks")
                     converted_lora_sd[new_key] = diffusers_lora_sd[key]
 
         # single_blocks
-        elif key.startswith("single_transformer_blocks"):
+        elif key.startswith(single_block_pattern):
             if key.endswith("to_q.lora_A.weight"):
                 # lora_A
                 to_q_A = diffusers_lora_sd[key]
@@ -81,7 +84,7 @@ def convert_lora_sd(diffusers_lora_sd):
                 proj_mlp_A = diffusers_lora_sd[key.replace("attn.to_q", "proj_mlp")]
 
                 linear1_A = torch.cat([to_q_A, to_k_A, to_v_A, proj_mlp_A], dim=0)
-                linear1_A_key = key.replace("single_transformer_blocks", prefix + "single_blocks").replace(
+                linear1_A_key = key.replace(single_block_pattern, prefix + "single_blocks").replace(
                     "attn.to_q", "linear1"
                 )
                 converted_lora_sd[linear1_A_key] = linear1_A
@@ -98,7 +101,7 @@ def convert_lora_sd(diffusers_lora_sd):
 
             elif "proj_out" in key:
                 new_key = key.replace("proj_out", "linear2").replace(
-                    "single_transformer_blocks", prefix + "single_blocks"
+                    single_block_pattern, prefix + "single_blocks"
                 )
                 converted_lora_sd[new_key] = diffusers_lora_sd[key]
 
