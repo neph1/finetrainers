@@ -81,8 +81,11 @@ def convert_lora_sd(diffusers_lora_sd):
                 to_q_A = diffusers_lora_sd[key]
                 to_k_A = diffusers_lora_sd[key.replace("to_q", "to_k")]
                 to_v_A = diffusers_lora_sd[key.replace("to_q", "to_v")]
-                proj_mlp_A = diffusers_lora_sd[key.replace("attn.to_q", "proj_mlp")]
-
+                proj_mlp_A_key = key.replace("attn.to_q", "proj_mlp")
+                if proj_mlp_A_key in diffusers_lora_sd:
+                    proj_mlp_A = diffusers_lora_sd[proj_mlp_A_key]
+                else:
+                    proj_mlp_A = torch.zeros((to_q_A.shape[0], to_q_A.shape[1]))
                 linear1_A = torch.cat([to_q_A, to_k_A, to_v_A, proj_mlp_A], dim=0)
                 linear1_A_key = key.replace(single_block_pattern, prefix + "single_blocks").replace(
                     "attn.to_q", "linear1"
@@ -93,8 +96,11 @@ def convert_lora_sd(diffusers_lora_sd):
                 to_q_B = diffusers_lora_sd[key.replace("to_q.lora_A", "to_q.lora_B")]
                 to_k_B = diffusers_lora_sd[key.replace("to_q.lora_A", "to_k.lora_B")]
                 to_v_B = diffusers_lora_sd[key.replace("to_q.lora_A", "to_v.lora_B")]
-                proj_mlp_B = diffusers_lora_sd[key.replace("attn.to_q.lora_A", "proj_mlp.lora_B")]
-
+                proj_mlp_B_key = key.replace("to_q.lora_A", "attn.to_q.lora_B")
+                if proj_mlp_B_key in diffusers_lora_sd:
+                    proj_mlp_B = diffusers_lora_sd[proj_mlp_B_key]
+                else:
+                    proj_mlp_B = torch.zeros((to_q_B.shape[0] * 4, to_q_B.shape[1]))
                 linear1_B = torch.block_diag(to_q_B, to_k_B, to_v_B, proj_mlp_B)
                 linear1_B_key = linear1_A_key.replace("lora_A", "lora_B")
                 converted_lora_sd[linear1_B_key] = linear1_B
