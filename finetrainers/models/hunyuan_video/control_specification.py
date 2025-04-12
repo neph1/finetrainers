@@ -1,3 +1,4 @@
+import functools
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -12,8 +13,10 @@ from diffusers import (
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel
+from finetrainers.data._artifact import VideoArtifact
 from finetrainers.models.hunyuan_video import hunyuan_common
 from finetrainers.models.utils import _expand_conv3d_with_zeroed_weights
+from finetrainers.utils.serialization import safetensors_torch_save_function
 
 from ... import data
 from ... import functional as FF
@@ -136,7 +139,6 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         input_keys = set(conditions.keys())
         conditions = super().prepare_conditions(**conditions)
         conditions = {k: v for k, v in conditions.items() if k not in input_keys}
-        conditions.pop("prompt_attention_mask", None)
         return conditions
     
     @torch.no_grad()
@@ -182,6 +184,8 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         compute_posterior: bool = True,
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
+        from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
+        compute_posterior = False
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
             control_latents = latent_model_conditions.pop("control_latents")
@@ -214,13 +218,14 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         guidance = latents.new_full((latents.size(0),), fill_value=guidance) * 1000.0
 
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
-        control_latents = self._prepare_temporal_control_latents(
+        control_latents = apply_frame_conditioning_on_latents(
             control_latents,
             noisy_latents.shape[2],
-            dim=2,
+            channel_dim=1,
+            frame_dim=2,
             frame_conditioning_type=self.frame_conditioning_type,
             frame_conditioning_index=self.frame_conditioning_index,
-            generator=generator,
+            concatenate_mask=self.frame_conditioning_concatenate_mask,
         )
         noisy_latents = torch.cat([noisy_latents, control_latents], dim=1)
 
@@ -233,7 +238,6 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
             timestep=timesteps,
             return_dict=False,
         )[0]
-        
         target = FF.flow_match_target(noise, latents)
 
         return pred, target, sigmas
@@ -242,17 +246,19 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         self,
         pipeline: HunyuanVideoPipeline,
         prompt: str,
-        control_image: torch.Tensor,
-        control_video: torch.Tensor,
+        control_image: Optional[torch.Tensor] = None,
+        control_video: Optional[torch.Tensor] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_frames: Optional[int] = None,
         num_inference_steps: int = 50,
         generator: Optional[torch.Generator] = None,
-        frame_conditioning_type: FrameConditioningType = FrameConditioningType.INDEX.value,
+        frame_conditioning_type: "FrameConditioningType" = "full",
         frame_conditioning_index: int = 0,
         **kwargs,
     ) -> List[ArtifactType]:
+        from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
+
         with torch.no_grad():
             dtype = pipeline.vae.dtype
             device = pipeline._execution_device
@@ -263,7 +269,7 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
                 .view(1, self.vae_config.z_dim, 1, 1, 1)
                 .to(latents.device, latents.dtype)
             )
-            latents_std = 1.0 / torch.tensor(self.vae.config.latents_std).view(1, self.vae.config.z_dim, 1, 1, 1).to(
+            latents_std = 1.0 / torch.tensor(self.vae_config.latents_std).view(1, self.vae_config.z_dim, 1, 1, 1).to(
                 latents.device, latents.dtype
             )
 
@@ -277,16 +283,18 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
             control_video = control_video.to(device=device, dtype=dtype)
             control_latents = pipeline.vae.encode(control_video).latent_dist.mode()
             control_latents = self._normalize_latents(control_latents, latents_mean, latents_std)
-            control_latents = self._prepare_temporal_control_latents(
+            control_latents = apply_frame_conditioning_on_latents(
                 control_latents,
                 latents.shape[2],
-                dim=2,
+                channel_dim=1,
+                frame_dim=2,
                 frame_conditioning_type=frame_conditioning_type,
                 frame_conditioning_index=frame_conditioning_index,
-                generator=generator,
+                concatenate_mask=self.frame_conditioning_concatenate_mask,
             )
 
         generation_kwargs = {
+            "latents": latents,
             "prompt": prompt,
             "height": height,
             "width": width,
@@ -301,7 +309,7 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         with control_channel_concat(pipeline.transformer, ["hidden_states"], [control_latents], dims=[1]):
             video = pipeline(**generation_kwargs).frames[0]
 
-        return [data.VideoArtifact(value=video)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,
@@ -309,12 +317,18 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         norm_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            HunyuanVideoPipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
+            HunyuanVideoPipeline.save_lora_weights(
+                directory,
+                transformer_state_dict,
+                save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
+                safe_serialization=True,
+            )
         if norm_state_dict is not None:
             safetensors.torch.save_file(norm_state_dict, os.path.join(directory, "norm_state_dict.safetensors"))
         if scheduler is not None:
