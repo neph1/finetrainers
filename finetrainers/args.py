@@ -88,6 +88,8 @@ class BaseArgs:
         Modules to skip for layerwise upcasting. Layers such as normalization and modulation, when casted to fp8 precision
         naively (as done in layerwise upcasting), can lead to poorer training and inference quality. We skip these layers
         by default, and recommend adding more layers to the default list based on the model architecture.
+    compile_modules (`List[str]`, defaults to `[]`):
+        Modules that should be regionally compiled with `torch.compile`. Choose one or more from ['transformer'].
 
     DATASET ARGUMENTS
     -----------------
@@ -314,6 +316,7 @@ class BaseArgs:
         "^proj_out$",
         "norm",
     ]
+    compile_modules: List[str] = []
 
     # Dataset arguments
     dataset_config: str = None
@@ -420,6 +423,7 @@ class BaseArgs:
             "layerwise_upcasting_modules": self.layerwise_upcasting_modules,
             "layerwise_upcasting_storage_dtype": self.layerwise_upcasting_storage_dtype,
             "layerwise_upcasting_skip_modules_pattern": self.layerwise_upcasting_skip_modules_pattern,
+            "compile_modules": self.compile_modules,
         }
         model_arguments = get_non_null_items(model_arguments)
 
@@ -628,6 +632,7 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
         default=["patch_embed", "pos_embed", "x_embedder", "context_embedder", "^proj_in$", "^proj_out$", "norm"],
         nargs="+",
     )
+    parser.add_argument("--compile_modules", type=str, default=[], nargs="+", choices=["transformer"])
 
 
 def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
@@ -766,6 +771,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.layerwise_upcasting_modules = args.layerwise_upcasting_modules
     result_args.layerwise_upcasting_storage_dtype = _DTYPE_MAP[args.layerwise_upcasting_storage_dtype]
     result_args.layerwise_upcasting_skip_modules_pattern = args.layerwise_upcasting_skip_modules_pattern
+    result_args.compile_modules = args.compile_modules
 
     # Dataset arguments
     result_args.dataset_config = args.dataset_config
@@ -843,9 +849,9 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
 
 def _validate_model_args(args: BaseArgs):
     if args.training_type == "full-finetune":
-        assert (
-            "transformer" not in args.layerwise_upcasting_modules
-        ), "Layerwise upcasting is not supported for full-finetune training"
+        assert "transformer" not in args.layerwise_upcasting_modules, (
+            "Layerwise upcasting is not supported for full-finetune training"
+        )
 
 
 def _validate_dataset_args(args: BaseArgs):

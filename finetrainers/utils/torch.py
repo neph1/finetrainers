@@ -7,7 +7,9 @@ import torch.backends
 import torch.distributed as dist
 import torch.distributed.tensor
 
-from ..logging import get_logger
+from finetrainers.logging import get_logger
+
+from ._common import DIFFUSERS_TRANSFORMER_BLOCK_NAMES
 
 
 logger = get_logger()
@@ -39,6 +41,20 @@ def align_device_and_dtype(
         if dtype is not None:
             x = {k: align_device_and_dtype(v, device, dtype) for k, v in x.items()}
     return x
+
+
+def apply_compile(model: torch.nn.Module) -> None:
+    r"""Apply torch.compile on a model."""
+
+    def apply_torch_compile(blocks: torch.nn.ModuleList):
+        for layer_id, block in blocks.named_children():
+            block = torch.compile(block)
+            blocks.register_module(layer_id, block)
+
+    for transformer_block_name in DIFFUSERS_TRANSFORMER_BLOCK_NAMES:
+        blocks = getattr(model, transformer_block_name, None)
+        if blocks is not None:
+            apply_torch_compile(blocks)
 
 
 def _clip_grad_norm_while_handling_failing_dtensor_cases(
@@ -215,6 +231,11 @@ def get_string_from_dtype(dtype: torch.dtype):
     return _DTYPE_TO_STRING[dtype]
 
 
+def get_unwrapped_model_state_dict(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    # Remove _orig_mod occurrences from the state dict keys
+    return {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+
+
 def set_requires_grad(models: Union[torch.nn.Module, List[torch.nn.Module]], value: bool) -> None:
     if isinstance(models, torch.nn.Module):
         models = [models]
@@ -245,10 +266,10 @@ def _get_total_norm(
     if len(tensors) == 0:
         return torch.tensor(0.0)
     first_device = tensors[0].device
-    grouped_tensors: dict[
-        tuple[torch.device, torch.dtype], tuple[list[list[torch.Tensor]], list[int]]
-    ] = _group_tensors_by_device_and_dtype(
-        [tensors]  # type: ignore[list-item]
+    grouped_tensors: dict[tuple[torch.device, torch.dtype], tuple[list[list[torch.Tensor]], list[int]]] = (
+        _group_tensors_by_device_and_dtype(
+            [tensors]  # type: ignore[list-item]
+        )
     )  # type: ignore[assignment]
 
     norms: List[torch.Tensor] = []
@@ -287,9 +308,9 @@ def _clip_grads_with_norm_(
     max_norm = float(max_norm)
     if len(grads) == 0:
         return
-    grouped_grads: dict[
-        Tuple[torch.device, torch.dtype], Tuple[List[List[torch.Tensor]], List[int]]
-    ] = _group_tensors_by_device_and_dtype([grads])  # type: ignore[assignment]
+    grouped_grads: dict[Tuple[torch.device, torch.dtype], Tuple[List[List[torch.Tensor]], List[int]]] = (
+        _group_tensors_by_device_and_dtype([grads])
+    )  # type: ignore[assignment]
 
     clip_coef = max_norm / (total_norm + 1e-6)
     # Note: multiplying by the clamped coef is redundant when the coef is clamped to 1, but doing so
