@@ -31,6 +31,7 @@ from ...processors import CLIPPooledProcessor, LlamaProcessor, ProcessorMixin
 
 logger = get_logger()
 
+
 class HunyuanVideoControlModelSpecification(ControlModelSpecification):
     def __init__(
         self,
@@ -115,7 +116,7 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         scheduler = FlowMatchEulerDiscreteScheduler()
 
         return {"transformer": transformer, "scheduler": scheduler}
-    
+
     @torch.no_grad()
     def prepare_conditions(
         self,
@@ -140,7 +141,7 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         conditions = super().prepare_conditions(**conditions)
         conditions = {k: v for k, v in conditions.items() if k not in input_keys}
         return conditions
-    
+
     @torch.no_grad()
     def prepare_latents(
         self,
@@ -185,6 +186,7 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
         from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
+
         compute_posterior = False
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
