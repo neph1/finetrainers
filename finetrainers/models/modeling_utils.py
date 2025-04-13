@@ -11,6 +11,7 @@ from finetrainers.processors import ProcessorMixin
 from finetrainers.typing import ArtifactType, SchedulerType, TokenizerType
 from finetrainers.utils import resolve_component_cls
 
+
 if TYPE_CHECKING:
     from finetrainers.trainer.control_trainer.config import FrameConditioningType
 
