@@ -59,7 +59,7 @@ class HunyuanLatentEncodeProcessor(ProcessorMixin):
         assert video.ndim == 5, f"Expected 5D tensor, got {video.ndim}D tensor"
         video = video.to(device=device, dtype=vae.dtype)
         video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
-        
+
         compute_posterior = False
         if compute_posterior:
             latents = vae.encode(video).latent_dist.sample(generator=generator)

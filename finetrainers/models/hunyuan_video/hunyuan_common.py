@@ -5,9 +5,11 @@ from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel
 from diffusers import (
     AutoencoderKLHunyuanVideo,
     FlowMatchEulerDiscreteScheduler,
-    HunyuanVideoPipeline,)
+    HunyuanVideoPipeline,
+)
 
 from ...utils import _enable_vae_memory_optimizations, get_non_null_items
+
 
 def load_condition_models(self) -> Dict[str, torch.nn.Module]:
     common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
@@ -57,6 +59,7 @@ def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         "text_encoder_2": text_encoder_2,
     }
 
+
 def load_latent_models(self) -> Dict[str, torch.nn.Module]:
     common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
 
@@ -68,6 +71,7 @@ def load_latent_models(self) -> Dict[str, torch.nn.Module]:
         )
 
     return {"vae": vae}
+
 
 def load_pipeline(
     self,
