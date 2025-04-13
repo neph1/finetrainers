@@ -72,8 +72,8 @@ class HunyuanLatentEncodeProcessor(ProcessorMixin):
             moments = vae._encode(video)
             latents = moments.to(dtype=dtype)
 
-        latents_mean = torch.zeros((vae.latent_channels,), requires_grad=False)
-        latents_std = torch.ones((vae.latent_channels,), requires_grad=False)
+        latents_mean = torch.tensor(vae.config.latents_mean)
+        latents_std = 1.0 / torch.tensor(vae.config.latents_std)
 
         return {self.output_names[0]: latents, self.output_names[1]: latents_mean, self.output_names[2]: latents_std}
 
@@ -190,13 +190,32 @@ class HunyuanVideoModelSpecification(ModelSpecification):
 
         return {"vae": vae}
 
+    def load_diffusion_models(self) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
+        if self.transformer_id is not None:
+            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
+                self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
+            )
+        else:
+            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
+                self.pretrained_model_name_or_path,
+                subfolder="transformer",
+                torch_dtype=self.transformer_dtype,
+                **common_kwargs,
+            )
+
+        scheduler = FlowMatchEulerDiscreteScheduler()
+
+        return {"transformer": transformer, "scheduler": scheduler}
+
     def load_pipeline(
         self,
         tokenizer: Optional[AutoTokenizer] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
         text_encoder: Optional[LlamaModel] = None,
         text_encoder_2: Optional[CLIPTextModel] = None,
-        transformer: Optional[torch.Module] = None,
+        transformer: Optional[HunyuanVideoTransformer3DModel] = None,
         vae: Optional[AutoencoderKLHunyuanVideo] = None,
         scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
         enable_slicing: bool = False,
@@ -226,25 +245,9 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         _enable_vae_memory_optimizations(pipe.vae, enable_slicing, enable_tiling)
         if not training:
             pipe.transformer.to(self.transformer_dtype)
-
-    def load_diffusion_models(self) -> Dict[str, torch.nn.Module]:
-        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
-
-        if self.transformer_id is not None:
-            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
-                self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
-            )
-        else:
-            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="transformer",
-                torch_dtype=self.transformer_dtype,
-                **common_kwargs,
-            )
-
-        scheduler = FlowMatchEulerDiscreteScheduler()
-
-        return {"transformer": transformer, "scheduler": scheduler}
+        if enable_model_cpu_offload:
+            pipe.enable_model_cpu_offload()
+        return pipe
 
     @torch.no_grad()
     def prepare_conditions(
@@ -321,8 +324,10 @@ class HunyuanVideoModelSpecification(ModelSpecification):
             latents = posterior.sample(generator=generator)
             del posterior
 
+        latents = latents * self.vae_config.scaling_factor
         noise = torch.zeros_like(latents).normal_(generator=generator)
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
+
         timesteps = (sigmas.flatten() * 1000.0).long()
         guidance = latents.new_full((latents.size(0),), fill_value=guidance) * 1000.0
 

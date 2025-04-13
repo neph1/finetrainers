@@ -149,13 +149,36 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
 
         return {"vae": vae}
 
+    def load_diffusion_models(self, new_in_features: int) -> Dict[str, torch.nn.Module]:
+        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+
+        if self.transformer_id is not None:
+            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
+                self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
+            )
+        else:
+            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
+                self.pretrained_model_name_or_path,
+                subfolder="transformer",
+                torch_dtype=self.transformer_dtype,
+                **common_kwargs,
+            )
+
+        transformer.x_embedder.proj = _expand_conv3d_with_zeroed_weights(
+            transformer.x_embedder.proj, new_in_channels=new_in_features
+        )
+        transformer.register_to_config(in_channels=new_in_features)
+        scheduler = FlowMatchEulerDiscreteScheduler()
+
+        return {"transformer": transformer, "scheduler": scheduler}   
+        
     def load_pipeline(
         self,
         tokenizer: Optional[AutoTokenizer] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
         text_encoder: Optional[LlamaModel] = None,
         text_encoder_2: Optional[CLIPTextModel] = None,
-        transformer: Optional[Module] = None,
+        transformer: Optional[HunyuanVideoTransformer3DModel] = None,
         vae: Optional[AutoencoderKLHunyuanVideo] = None,
         scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
         enable_slicing: bool = False,
@@ -186,28 +209,15 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         if not training:
             pipe.transformer.to(self.transformer_dtype)
 
-    def load_diffusion_models(self, new_in_features: int) -> Dict[str, torch.nn.Module]:
-        common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
+        # TODO(aryan): add support in diffusers
+        # if enable_slicing:
+        #     pipe.vae.enable_slicing()
+        # if enable_tiling:
+        #     pipe.vae.enable_tiling()
+        if enable_model_cpu_offload:
+            pipe.enable_model_cpu_offload()
 
-        if self.transformer_id is not None:
-            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
-                self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
-            )
-        else:
-            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="transformer",
-                torch_dtype=self.transformer_dtype,
-                **common_kwargs,
-            )
-
-        transformer.x_embedder.proj = _expand_conv3d_with_zeroed_weights(
-            transformer.x_embedder.proj, new_in_channels=new_in_features
-        )
-        transformer.register_to_config(in_channels=new_in_features)
-        scheduler = FlowMatchEulerDiscreteScheduler()
-
-        return {"transformer": transformer, "scheduler": scheduler}
+        return pipe
 
     @torch.no_grad()
     def prepare_conditions(
