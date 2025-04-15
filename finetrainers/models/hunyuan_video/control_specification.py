@@ -12,7 +12,6 @@ from diffusers import (
     HunyuanVideoTransformer3DModel,
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
-from torch.nn import Module
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel
 
 from finetrainers.data._artifact import VideoArtifact
@@ -170,8 +169,8 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
         transformer.register_to_config(in_channels=new_in_features)
         scheduler = FlowMatchEulerDiscreteScheduler()
 
-        return {"transformer": transformer, "scheduler": scheduler}   
-        
+        return {"transformer": transformer, "scheduler": scheduler}
+
     def load_pipeline(
         self,
         tokenizer: Optional[AutoTokenizer] = None,
