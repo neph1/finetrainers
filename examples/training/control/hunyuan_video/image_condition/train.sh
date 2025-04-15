@@ -10,17 +10,25 @@ export NCCL_IB_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
 export FINETRAINERS_LOG_LEVEL="INFO"
 
+# Download the validation dataset
+if [ ! -d "examples/training/control/wan/image_condition/validation_dataset" ]; then
+  echo "Downloading validation dataset..."
+  huggingface-cli download --repo-type dataset finetrainers/OpenVid-1k-split-validation --local-dir examples/training/control/wan/image_condition/validation_dataset
+else
+  echo "Validation dataset already exists. Skipping download."
+fi
+
 # Finetrainers supports multiple backends for distributed training. Select your favourite and benchmark the differences!
 # BACKEND="accelerate"
 BACKEND="ptd"
 
-# In this setting, I'm using 2 GPUs on a 4-GPU node for training
-NUM_GPUS=8
-CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
+# In this setting, I'm using 1 GPU on 4-GPU node for training
+NUM_GPUS=1
+CUDA_VISIBLE_DEVICES="3"
 
 # Check the JSON files for the expected JSON format
-TRAINING_DATASET_CONFIG="examples/training/control/cogview4/omni_edit/training.json"
-VALIDATION_DATASET_FILE="examples/training/control/cogview4/omni_edit/validation.json"
+TRAINING_DATASET_CONFIG="examples/training/control/hunyuan_video/image_condition/training.json"
+VALIDATION_DATASET_FILE="examples/training/control/hunyuan_video/image_condition/validation.json"
 
 # Depending on how many GPUs you have available, choose your degree of parallelism and technique!
 DDP_1="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 1 --tp_degree 1"
@@ -40,22 +48,23 @@ parallel_cmd=(
 model_cmd=(
   --model_name "hunyuan_video"
   --pretrained_model_name_or_path "hunyuanvideo-community/HunyuanVideo"
+  --compile_modules transformer
 )
 
 # Control arguments
 control_cmd=(
-  --control_type custom
-  --rank 32
-  --lora_alpha 32
-  --target_modules "transformer_blocks.*(to_q|to_k|to_v|to_out.0)"
+  --control_type none
+  --rank 128
+  --lora_alpha 128
+  --target_modules "blocks.*(to_q|to_k|to_v|to_out.0|ff.net.0.proj|ff.net.2)"
+  --frame_conditioning_type index
+  --frame_conditioning_index 0
 )
 
 # Dataset arguments
 dataset_cmd=(
   --dataset_config $TRAINING_DATASET_CONFIG
-  --dataset_shuffle_buffer_size 16
-  --enable_precomputation
-  --precomputation_items 16
+  --dataset_shuffle_buffer_size 32
 )
 
 # Dataloader arguments
@@ -76,10 +85,10 @@ training_cmd=(
   --seed 42
   --batch_size 1
   --train_steps 10000
-  --gradient_accumulation_steps 4
+  --gradient_accumulation_steps 1
   --gradient_checkpointing
   --checkpointing_steps 1000
-  --checkpointing_limit 5
+  --checkpointing_limit 2
   # --resume_from_checkpoint 3000
   --enable_slicing
   --enable_tiling
@@ -88,9 +97,9 @@ training_cmd=(
 # Optimizer arguments
 optimizer_cmd=(
   --optimizer "adamw"
-  --lr 3e-5
+  --lr 2e-5
   --lr_scheduler "constant_with_warmup"
-  --lr_warmup_steps 2000
+  --lr_warmup_steps 1000
   --lr_num_cycles 1
   --beta1 0.9
   --beta2 0.99
@@ -102,16 +111,16 @@ optimizer_cmd=(
 # Validation arguments
 validation_cmd=(
   --validation_dataset_file "$VALIDATION_DATASET_FILE"
-  --validation_steps 500
+  --validation_steps 501
 )
 
 # Miscellaneous arguments
 miscellaneous_cmd=(
-  --tracker_name "finetrainers"
-  --output_dir "/fsx/aryan/lora-training/hunyuanvideo"
+  --tracker_name "finetrainers-hunyuan_video-control"
+  --output_dir "/raid/aryan/hunyuan_video-control-image-condition"
   --init_timeout 600
   --nccl_timeout 600
-  --report_to "none"
+  --report_to "wandb"
 )
 
 # Execute the training script
@@ -128,11 +137,6 @@ if [ "$BACKEND" == "accelerate" ]; then
     ACCELERATE_CONFIG_FILE="accelerate_configs/uncompiled_8.yaml"
   fi
   
-  export WORLD_SIZE=$NUM_GPUS
-  export RANK=0
-  export MASTER_ADDR=localhost
-  export MASTER_PORT=0
-  
   accelerate launch --config_file "$ACCELERATE_CONFIG_FILE" --gpu_ids $CUDA_VISIBLE_DEVICES train.py \
     "${parallel_cmd[@]}" \
     "${model_cmd[@]}" \
@@ -142,11 +146,13 @@ if [ "$BACKEND" == "accelerate" ]; then
     "${diffusion_cmd[@]}" \
     "${training_cmd[@]}" \
     "${optimizer_cmd[@]}" \
+    "${validation_cmd[@]}" \
     "${miscellaneous_cmd[@]}"
 
 elif [ "$BACKEND" == "ptd" ]; then
 
   export CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES
+  
   torchrun \
     --standalone \
     --nnodes=1 \
@@ -162,6 +168,7 @@ elif [ "$BACKEND" == "ptd" ]; then
       "${diffusion_cmd[@]}" \
       "${training_cmd[@]}" \
       "${optimizer_cmd[@]}" \
+      "${validation_cmd[@]}" \
       "${miscellaneous_cmd[@]}"
 fi
 
