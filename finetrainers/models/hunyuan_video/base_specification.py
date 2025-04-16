@@ -72,8 +72,8 @@ class HunyuanLatentEncodeProcessor(ProcessorMixin):
             moments = vae._encode(video)
             latents = moments.to(dtype=dtype)
 
-        latents_mean = torch.tensor(vae.config.latents_mean)
-        latents_std = 1.0 / torch.tensor(vae.config.latents_std)
+        latents_mean = torch.tensor(vae.latent_channels)
+        latents_std = 1.0 / torch.tensor(vae.latent_channels)
 
         return {self.output_names[0]: latents, self.output_names[1]: latents_mean, self.output_names[2]: latents_std}
 
