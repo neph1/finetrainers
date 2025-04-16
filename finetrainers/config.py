@@ -1,13 +1,11 @@
 from enum import Enum
 from typing import Type
 
-from finetrainers.models.hunyuan_video.control_specification import HunyuanVideoControlModelSpecification
-
 from .models import ModelSpecification
 from .models.cogvideox import CogVideoXModelSpecification
 from .models.cogview4 import CogView4ControlModelSpecification, CogView4ModelSpecification
 from .models.flux import FluxModelSpecification
-from .models.hunyuan_video import HunyuanVideoModelSpecification
+from .models.hunyuan_video import HunyuanVideoModelSpecification, HunyuanVideoControlModelSpecification
 from .models.ltx_video import LTXVideoModelSpecification
 from .models.wan import WanControlModelSpecification, WanModelSpecification
 
