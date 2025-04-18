@@ -19,7 +19,6 @@ from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
 from finetrainers import data, logging, optimizer, parallel, patches, utils
-from finetrainers.config import TrainingType
 from finetrainers.state import State, TrainState
 
 from .config import SFTFullRankConfig, SFTLowRankConfig
@@ -112,6 +111,7 @@ class SFTTrainer:
         logger.info("Initializing trainable parameters")
 
         parallel_backend = self.state.parallel_backend
+        from finetrainers.config import TrainingType
 
         if self.args.training_type == TrainingType.FULL_FINETUNE:
             logger.info("Finetuning transformer with no additional parameters")
@@ -297,6 +297,7 @@ class SFTTrainer:
 
     def _prepare_checkpointing(self) -> None:
         parallel_backend = self.state.parallel_backend
+        from finetrainers.config import TrainingType
 
         def save_model_hook(state_dict: Dict[str, Any]) -> None:
             state_dict = utils.get_unwrapped_model_state_dict(state_dict)
@@ -842,6 +843,7 @@ class SFTTrainer:
             )
         else:
             self._delete_components()
+            from finetrainers.config import TrainingType
 
             # Load the transformer weights from the final checkpoint if performing full-finetune
             transformer = None

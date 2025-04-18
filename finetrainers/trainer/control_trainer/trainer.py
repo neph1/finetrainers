@@ -11,7 +11,6 @@ import datasets.distributed
 import safetensors.torch
 import torch
 import torch.backends
-import wandb
 from diffusers import DiffusionPipeline
 from diffusers.hooks import apply_layerwise_casting
 from diffusers.training_utils import cast_training_params
@@ -20,8 +19,9 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
+import wandb
 from finetrainers import data, logging, optimizer, parallel, patches, utils
-from finetrainers.config import TrainingType
+
 from finetrainers.patches import load_lora_weights
 from finetrainers.state import State, TrainState
 
@@ -124,6 +124,8 @@ class ControlTrainer:
         parallel_backend = self.state.parallel_backend
         model_spec = self.model_specification
 
+        from finetrainers.config import TrainingType
+        
         if self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
             logger.info("Finetuning transformer with no additional parameters")
             utils.set_requires_grad([self.transformer], True)
@@ -335,6 +337,7 @@ class ControlTrainer:
 
     def _prepare_checkpointing(self) -> None:
         parallel_backend = self.state.parallel_backend
+        from finetrainers.config import TrainingType
 
         def save_model_hook(state_dict: Dict[str, Any]) -> None:
             state_dict = utils.get_unwrapped_model_state_dict(state_dict)
@@ -910,6 +913,7 @@ class ControlTrainer:
             )
         else:
             self._delete_components()
+            from finetrainers.config import TrainingType
 
             # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
             new_in_features = self.model_specification._original_control_layer_in_features * 2
