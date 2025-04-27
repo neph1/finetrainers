@@ -72,7 +72,7 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
                 ),
             ]
         if latent_model_processors is None:
-            latent_model_processors = [HunyuanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
+            latent_model_processors = [HunyuanLatentEncodeProcessor(["latents"])]
         if control_model_processors is None:
             control_model_processors = [HunyuanLatentEncodeProcessor(["control_latents", "__drop__", "__drop__"])]
 
@@ -288,33 +288,12 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
     ) -> Tuple[torch.Tensor, ...]:
         from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
 
-        compute_posterior = False
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
-            control_latents = latent_model_conditions.pop("control_latents")
         else:
-            latents = latent_model_conditions.pop("latents")
-            control_latents = latent_model_conditions.pop("control_latents")
-            latents_mean = latent_model_conditions.pop("latents_mean")
-            latents_std = latent_model_conditions.pop("latents_std")
-
-            mu, logvar = torch.chunk(latents, 2, dim=1)
-            mu = self._normalize_latents(mu, latents_mean, latents_std)
-            logvar = self._normalize_latents(logvar, latents_mean, latents_std)
-            latents = torch.cat([mu, logvar], dim=1)
-
-            mu, logvar = torch.chunk(control_latents, 2, dim=1)
-            mu = self._normalize_latents(mu, latents_mean, latents_std)
-            logvar = self._normalize_latents(logvar, latents_mean, latents_std)
-            control_latents = torch.cat([mu, logvar], dim=1)
-
-            posterior = DiagonalGaussianDistribution(latents)
-            latents = posterior.mode()
+            posterior = DiagonalGaussianDistribution(latent_model_conditions.pop("latents"))
+            latents = posterior.sample(generator=generator)
             del posterior
-
-            control_posterior = DiagonalGaussianDistribution(control_latents)
-            control_latents = control_posterior.mode()
-            del control_posterior
 
         noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
@@ -452,15 +431,6 @@ class HunyuanVideoControlModelSpecification(ControlModelSpecification):
             transformer_copy.save_pretrained(os.path.join(directory, "transformer"))
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
-
-    @staticmethod
-    def _normalize_latents(
-        latents: torch.Tensor, latents_mean: torch.Tensor, latents_std: torch.Tensor
-    ) -> torch.Tensor:
-        latents_mean = latents_mean.view(1, -1, 1, 1, 1).to(device=latents.device)
-        latents_std = latents_std.view(1, -1, 1, 1, 1).to(device=latents.device)
-        latents = ((latents.float() - latents_mean) * latents_std).to(latents)
-        return latents
 
     @property
     def _original_control_layer_in_features(self):

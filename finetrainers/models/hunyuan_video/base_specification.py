@@ -38,7 +38,7 @@ class HunyuanLatentEncodeProcessor(ProcessorMixin):
     def __init__(self, output_names: List[str]):
         super().__init__()
         self.output_names = output_names
-        assert len(self.output_names) == 3
+        assert len(self.output_names) == 1
 
     def forward(
         self,
@@ -63,19 +63,14 @@ class HunyuanLatentEncodeProcessor(ProcessorMixin):
             latents = vae.encode(video).latent_dist.sample(generator=generator)
             latents = latents.to(dtype=dtype)
         else:
-            # TODO(aryan): refactor in diffusers to have use_slicing attribute
-            # if vae.use_slicing and video.shape[0] > 1:
-            #     encoded_slices = [vae._encode(x_slice) for x_slice in video.split(1)]
-            #     moments = torch.cat(encoded_slices)
-            # else:
-            #     moments = vae._encode(video)
-            moments = vae._encode(video)
+            if vae.use_slicing and video.shape[0] > 1:
+                encoded_slices = [vae._encode(x_slice) for x_slice in video.split(1)]
+                moments = torch.cat(encoded_slices)
+            else:
+                moments = vae._encode(video)
             latents = moments.to(dtype=dtype)
 
-        latents_mean = torch.tensor(vae.latent_channels)
-        latents_std = 1.0 / torch.tensor(vae.latent_channels)
-
-        return {self.output_names[0]: latents, self.output_names[1]: latents_mean, self.output_names[2]: latents_std}
+        return {self.output_names[0]: latents}
 
 
 class HunyuanVideoModelSpecification(ModelSpecification):
@@ -121,7 +116,7 @@ class HunyuanVideoModelSpecification(ModelSpecification):
                 ),
             ]
         if latent_model_processors is None:
-            latent_model_processors = [HunyuanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
+            latent_model_processors = [HunyuanLatentEncodeProcessor(["latents"])]
 
         self.condition_model_processors = condition_model_processors
         self.latent_model_processors = latent_model_processors
@@ -311,16 +306,7 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
         else:
-            latents = latent_model_conditions.pop("latents")
-            latents_mean = latent_model_conditions.pop("latents_mean")
-            latents_std = latent_model_conditions.pop("latents_std")
-
-            mu, logvar = torch.chunk(latents, 2, dim=1)
-            mu = self._normalize_latents(mu, latents_mean, latents_std)
-            logvar = self._normalize_latents(logvar, latents_mean, latents_std)
-            latents = torch.cat([mu, logvar], dim=1)
-
-            posterior = DiagonalGaussianDistribution(latents)
+            posterior = DiagonalGaussianDistribution(latent_model_conditions.pop("latents"))
             latents = posterior.sample(generator=generator)
             del posterior
 
